@@ -185,15 +185,23 @@ async function main(): Promise<void> {
   }));
 
   // ---- meeting windows and indicator ----
+  // The popup window is created hidden at startup and reused, so it is fully loaded before the
+  // first detection (showing a window that is still loading left it invisible).
+  let toastReady: Promise<BrowserWindow>;
+  const makeToast = () => {
+    const t = createToastWindow();
+    windows.toast = t;
+    toastReady = new Promise((resolve) => t.webContents.once("did-finish-load", () => resolve(t)));
+  };
+  makeToast();
   const showToast = (info: { kind: "detected" | "ended"; app: string }) => {
-    if (!windows.toast || windows.toast.isDestroyed()) windows.toast = createToastWindow();
-    const t = windows.toast;
-    const send = () => {
+    if (!windows.toast || windows.toast.isDestroyed()) makeToast();
+    void toastReady.then((t) => {
       t.webContents.send("toast:show", info);
+      t.setAlwaysOnTop(true, "screen-saver");
       t.showInactive();
-    };
-    if (t.webContents.isLoading()) t.webContents.once("did-finish-load", send);
-    else send();
+      t.moveTop();
+    });
   };
   let detectedApp: string | null = null;
   detector.on("started", (appName: string) => {

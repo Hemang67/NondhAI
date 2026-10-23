@@ -19,14 +19,19 @@ async function activeCaptureProcesses(): Promise<string[]> {
   }
 }
 
+/**
+ * Titles of browser windows (vd-audio --windows reads cached captions, so a frozen window can't
+ * block it; `tasklist /v` was seen hanging for minutes on a real machine).
+ */
 async function browserTitles(): Promise<string[]> {
   try {
-    const { stdout } = await run("tasklist", ["/v", "/fo", "csv", "/nh"], { windowsHide: true, maxBuffer: 8 << 20 });
+    const { stdout } = await run(binPath("vd-audio.exe"), ["--windows"], { windowsHide: true, timeout: 5000, maxBuffer: 4 << 20 });
     return stdout
       .split(/\r?\n/)
-      .filter((l) => /^"(chrome|msedge|firefox|brave|opera|vivaldi|arc)\.exe"/i.test(l))
-      .map((l) => l.split('","').pop()?.replace(/"$/, "") ?? "")
-      .filter((t) => t && t !== "N/A");
+      .map((l) => l.split("\t"))
+      .filter(([exe]) => /(chrome|msedge|firefox|brave|opera|vivaldi|arc)\.exe$/i.test(exe ?? ""))
+      .map(([, title]) => title?.trim() ?? "")
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -61,12 +66,27 @@ export class MeetingDetector extends EventEmitter {
     this.active.clear();
   }
 
+  private polling = false;
+
   private async poll(): Promise<void> {
+    // Never let slow polls pile up.
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      await this.pollOnce();
+    } catch (err) {
+      log.warn("meeting detection poll failed", err);
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private async pollOnce(): Promise<void> {
     // Two sources: Windows' privacy registry (good for Store apps such as new Teams) and the audio
     // engine's live capture sessions (catches every app, including ones the registry misses).
     let out = "";
     try {
-      out = (await run("reg", ["query", KEY, "/s"], { windowsHide: true, maxBuffer: 4 << 20 })).stdout;
+      out = (await run("reg", ["query", KEY, "/s"], { windowsHide: true, timeout: 5000, maxBuffer: 4 << 20 })).stdout;
     } catch (err) {
       log.warn("mic usage query failed", err);
     }

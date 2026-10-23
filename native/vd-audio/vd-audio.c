@@ -277,8 +277,42 @@ static int listSessions(void) {
   return 0;
 }
 
+// --windows: "<exe path>\t<title>" for every visible top-level window that has a title.
+// InternalGetWindowText reads the cached caption, so a hung window can never block this
+// (tasklist /v and GetWindowText can wait on unresponsive windows).
+typedef int(WINAPI *InternalGetWindowTextFn)(HWND, LPWSTR, int);
+static InternalGetWindowTextFn g_igwt;
+
+static BOOL CALLBACK printWindow(HWND h, LPARAM l) {
+  if (!IsWindowVisible(h) || GetWindow(h, GW_OWNER)) return TRUE;
+  WCHAR title[512];
+  int n = g_igwt ? g_igwt(h, title, 512) : 0;
+  if (n <= 0) return TRUE;
+  for (WCHAR *c = title; *c; c++) if (*c == L'\t' || *c == L'\n' || *c == L'\r') *c = L' ';
+  DWORD pid = 0;
+  GetWindowThreadProcessId(h, &pid);
+  WCHAR path[MAX_PATH] = L"";
+  HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (p) {
+    DWORD len = MAX_PATH;
+    QueryFullProcessImageNameW(p, 0, path, &len);
+    CloseHandle(p);
+  }
+  char p8[MAX_PATH * 3], t8[512 * 3];
+  WideCharToMultiByte(CP_UTF8, 0, path, -1, p8, sizeof p8, NULL, NULL);
+  WideCharToMultiByte(CP_UTF8, 0, title, -1, t8, sizeof t8, NULL, NULL);
+  printf("%s\t%s\n", p8, t8);
+  return TRUE;
+}
+
 int main(int argc, char **argv) {
   if (argc == 5 && !strcmp(argv[1], "--aec-file")) return aecFile(argv[2], argv[3], argv[4]);
+  if (argc == 2 && !strcmp(argv[1], "--windows")) {
+    g_igwt = (InternalGetWindowTextFn)GetProcAddress(GetModuleHandleW(L"user32.dll"), "InternalGetWindowText");
+    EnumWindows(printWindow, 0);
+    fflush(stdout);
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "--sessions")) {
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(CoCreateInstance(&VD_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &VD_IID_IMMDeviceEnumerator, (void **)&g_enum))) return 1;
