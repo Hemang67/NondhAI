@@ -1,7 +1,24 @@
-import type { DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState } from "./types";
+import type { ClipKind, ClipRecord, DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState } from "./types";
+import type { Rect } from "./screen";
 import type { Settings } from "./settings";
 import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
 import type { FolderRecord, NoteRecord, SearchHit } from "./notes";
+
+export interface ScreenSource {
+  id: string;
+  name: string;
+  kind: "screen" | "window";
+  thumbnail: string;
+  displayId: string | null;
+}
+
+export interface ScreenState {
+  clipId: string;
+  meetingId: string;
+  kind: ClipKind;
+  label: string;
+  startedAt: number;
+}
 
 export interface RecordingState {
   id: string;
@@ -18,6 +35,8 @@ export interface MeetingDetail {
   speakers: Array<SpeakerLabel & { confirmed: boolean }>;
   /** Attendee names from the linked calendar event, offered when naming speakers. */
   suggestions: string[];
+  /** Screen recordings made during the meeting, in time order. */
+  clips: ClipRecord[];
 }
 
 export type ExportFormat = "md" | "txt" | "docx" | "srt" | "vtt";
@@ -102,6 +121,14 @@ export interface InvokeMap {
   "updates:status": [[], { state: string; version?: string; error?: string }];
   "updates:check": [[], void];
   "updates:install": [[], void];
+  // screen recording during a meeting
+  "screen:sources": [[], ScreenSource[]];
+  "screen:pickRegion": [[displayId: string | null], { rect: Rect; displayId: string } | null];
+  "screen:start": [[opts: { sourceId: string; kind: ClipKind; label: string; region?: Rect; displayId?: string | null }], ClipRecord];
+  "screen:stop": [[], void];
+  "screen:state": [[], ScreenState | null];
+  "clips:delete": [[id: string], void];
+  "region:done": [[rect: Rect | null], void];
 }
 
 /** main → renderer events */
@@ -121,6 +148,9 @@ export interface EventMap {
   "toast:show": [info: { kind: "detected" | "ended"; app: string }];
   "assistant:state": [AssistantState];
   "updates:status": [{ state: string; version?: string; error?: string }];
+  "screen:state": [ScreenState | null];
+  "screen:begin": [job: { clipId: string; sourceId: string; region: Rect | null; display: { width: number; height: number } | null }];
+  "screen:end": [clipId: string];
 }
 
 /** renderer → main fire-and-forget */
@@ -128,6 +158,9 @@ export interface SendMap {
   "recorder:chunk": [sessionId: string, samples: Float32Array];
   "recorder:started": [sessionId: string, error: string | null];
   "recorder:stopped": [sessionId: string];
+  "screen:chunk": [clipId: string, data: ArrayBuffer];
+  "screen:started": [clipId: string, error: string | null, width: number, height: number];
+  "screen:ended": [clipId: string, width: number, height: number];
 }
 
 type Keys<T> = ReadonlyArray<keyof T>;
@@ -148,13 +181,16 @@ export const INVOKE_CHANNELS = [
   "assistant:paste", "assistant:close",
   "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming",
   "updates:status", "updates:check", "updates:install",
+  "screen:sources", "screen:pickRegion", "screen:start", "screen:stop", "screen:state", "clips:delete", "region:done",
 ] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
   "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",
   "meeting:state", "meeting:line", "meeting:level", "meeting:progress", "meetings:changed", "people:changed",
-  "notes:changed", "toast:show", "assistant:state", "updates:status",
+  "notes:changed", "toast:show", "assistant:state", "updates:status", "screen:state", "screen:begin", "screen:end",
 ] as const satisfies Keys<EventMap>;
-export const SEND_CHANNELS = ["recorder:chunk", "recorder:started", "recorder:stopped"] as const satisfies Keys<SendMap>;
+export const SEND_CHANNELS = [
+  "recorder:chunk", "recorder:started", "recorder:stopped", "screen:chunk", "screen:started", "screen:ended",
+] as const satisfies Keys<SendMap>;
 
 export interface VdApi {
   invoke<K extends keyof InvokeMap>(channel: K, ...args: InvokeMap[K][0]): Promise<InvokeMap[K][1]>;

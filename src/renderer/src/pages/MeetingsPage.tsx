@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MeetingRecord } from "@shared/types";
+import type { ClipRecord, MeetingRecord } from "@shared/types";
 import type { ExportFormat, MeetingDetail } from "@shared/ipc";
 import type { TranscriptLine } from "@shared/meeting/types";
 import { Badge, Button, cx, Input } from "../components/ui";
@@ -197,6 +197,8 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
       {m.audioFile && (
         <audio ref={audio} controls preload="metadata" src={`vd-audio://${id}`} className="mt-4 w-full" aria-label="Meeting recording" />
       )}
+
+      {d.clips.length > 0 && <ScreenClips meetingId={id} clips={d.clips} audio={audio} />}
 
       <div className="mt-4 flex gap-1 border-b border-line" role="tablist">
         {(["summary", "transcript", "ask"] as const).map((t) => (
@@ -471,5 +473,82 @@ function AskBox({ meetingId }: { meetingId: string | null }) {
         </Button>
       </form>
     </div>
+  );
+}
+
+const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region" } as const;
+
+/**
+ * Screen recordings made during the meeting. Playing a clip also plays the meeting audio from
+ * the same moment, so you hear what was said while it was on screen.
+ */
+function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: ClipRecord[]; audio: React.RefObject<HTMLAudioElement | null> }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(null);
+  const video = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let url: string | null = null;
+    // Load into a blob so the player can seek freely.
+    void fetch(`vd-audio://${meetingId}/${open}`)
+      .then((r) => r.blob())
+      .then((b) => {
+        url = URL.createObjectURL(b);
+        setSrc(url);
+      });
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+      setSrc(null);
+    };
+  }, [open, meetingId]);
+
+  const clip = clips.find((c) => c.id === open);
+  const sync = () => {
+    const v = video.current;
+    const a = audio.current;
+    if (!v || !a || !clip) return;
+    a.currentTime = clip.startMs / 1000 + v.currentTime;
+    if (v.paused) a.pause();
+    else void a.play();
+  };
+
+  return (
+    <section className="mt-4 rounded-lg border border-line p-3">
+      <h3 className="mb-2 text-sm font-semibold">Screen recordings</h3>
+      <ul className="space-y-1.5">
+        {clips.map((c) => (
+          <li key={c.id} className="flex items-center gap-2 text-sm">
+            <Button variant={open === c.id ? "primary" : "secondary"} className="h-7 px-2" disabled={!c.file} onClick={() => setOpen(open === c.id ? null : c.id)}>
+              {open === c.id ? "Close" : "Play"}
+            </Button>
+            <span className="tabular-nums text-fg-muted">{clock(c.startMs)}</span>
+            <span className="min-w-0 flex-1 truncate">{c.label}</span>
+            <Badge>{CLIP_KIND[c.kind]}</Badge>
+            <span className="tabular-nums text-xs text-fg-muted">{c.endMs !== null ? clock(c.endMs - c.startMs) : "–"}</span>
+            {!c.file && <span className="text-xs text-fg-muted">deleted</span>}
+            <Button
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => confirm("Delete this screen recording?") && void window.vd.invoke("clips:delete", c.id).then(() => open === c.id && setOpen(null))}
+            >
+              Delete
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {open && (
+        <video
+          ref={video}
+          src={src ?? undefined}
+          controls
+          className="mt-3 w-full rounded bg-black"
+          onPlay={sync}
+          onPause={sync}
+          onSeeked={sync}
+          aria-label="Screen recording"
+        />
+      )}
+    </section>
   );
 }

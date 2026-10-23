@@ -8,7 +8,8 @@ import { buildQaMessages } from "@shared/meeting/summary";
 import { summaryMarkdown, toMarkdown, toSrt, toText, toVtt, transcriptForLlm } from "@shared/meeting/export";
 import type { SettingsStore } from "./settingsStore";
 import type { Store } from "./storage/store";
-import type { MeetingRepo, PeopleRepo } from "./storage/meetings";
+import type { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
+import type { ScreenRecorder } from "./screen/screenRecorder";
 import type { NotesRepo } from "./storage/notes";
 import type { SpeechService } from "./speech/speechService";
 import type { LlmClient } from "./llm/llm";
@@ -39,6 +40,8 @@ export interface AppContext {
   meetingService: MeetingService;
   calendar: CalendarService;
   assistant: AssistantService;
+  screenRecorder: ScreenRecorder;
+  clips: ClipRepo;
   dictation: DictationController;
   broadcast: (channel: string, ...args: unknown[]) => void;
   startMeeting: (opts: { kind: "call" | "room"; title?: string; sourceApp?: string | null }) => Promise<RecordingState>;
@@ -202,6 +205,7 @@ export function registerIpc(ctx: AppContext): void {
       lines: meetings.lines(id),
       speakers: meetings.speakers(id).map(({ embedding: _e, ...s }) => s),
       suggestions: [...new Set([...calendarNames, ...known])],
+      clips: ctx.clips.forMeeting(id),
     };
   });
   handle("meetings:start", (opts) => ctx.startMeeting(opts));
@@ -358,6 +362,19 @@ export function registerIpc(ctx: AppContext): void {
   handle("assistant:paste", () => ctx.assistant.pasteLastAnswer());
   handle("assistant:close", () => {
     ctx.windows.assistant?.hide();
+  });
+
+  // ---- screen recording ----
+  handle("screen:sources", () => ctx.screenRecorder.sources());
+  handle("screen:pickRegion", (displayId) => ctx.screenRecorder.pickRegion(displayId));
+  handle("screen:start", (opts) => ctx.screenRecorder.start(opts));
+  handle("screen:stop", () => ctx.screenRecorder.stop());
+  handle("screen:state", () => ctx.screenRecorder.state);
+  handle("clips:delete", (id) => {
+    const c = ctx.clips.get(id);
+    const m = c ? meetings.get(c.meetingId) : null;
+    if (c && m) ctx.screenRecorder.deleteClip(c, m.dir);
+    broadcast("meetings:changed");
   });
 
   // ---- calendar ----

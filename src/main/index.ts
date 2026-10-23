@@ -7,7 +7,8 @@ import { buildCleanupMessages } from "@shared/cleanup/llmCleanup";
 import { SettingsStore } from "./settingsStore";
 import { modelsDir as resolveModelsDir, userDataPath } from "./paths";
 import { Store } from "./storage/store";
-import { MeetingRepo, PeopleRepo } from "./storage/meetings";
+import { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
+import { ScreenRecorder } from "./screen/screenRecorder";
 import { NotesRepo } from "./storage/notes";
 import { getSecret, hasSecret, type SecretName } from "./secrets";
 import { InputHelper } from "./native/inputHelper";
@@ -32,6 +33,7 @@ import {
   createPillWindow,
   createRecIndicator,
   createToastWindow,
+  excludeFromCapture,
   resourcePath,
   showPill,
 } from "./windows";
@@ -126,6 +128,7 @@ async function main(): Promise<void> {
   };
 
   const pill = createPillWindow();
+  excludeFromCapture(pill);
   const setPill = (s: PillState) => {
     if (!settings.get().ui.showPill && s.kind !== "error") pill.webContents.send("pill:state", s);
     else showPill(pill, s);
@@ -176,7 +179,19 @@ async function main(): Promise<void> {
     },
   });
 
-  const meetingService = new MeetingService({ settings: () => settings.get(), speech, meetings, people, llm, llmAvailable });
+  const clips = new ClipRepo(store.db);
+  const meetingService = new MeetingService({ settings: () => settings.get(), speech, meetings, people, clips, llm, llmAvailable });
+  const screenRecorder = new ScreenRecorder({
+    clips,
+    meetings,
+    recording: () => meetingService.recording,
+    encrypt: () => settings.get().meetings.encryptAudio,
+  });
+  screenRecorder.on("state", (s) => {
+    broadcast("screen:state", s);
+    updateTray();
+  });
+  screenRecorder.on("changed", () => broadcast("meetings:changed"));
   // Nondh AI's own folder (vd-audio, the dev Electron) never triggers the prompt.
   const selfDir = app.isPackaged ? dirname(process.execPath) : app.getAppPath();
   const detector = new MeetingDetector(process.execPath, () => ({
@@ -191,6 +206,7 @@ async function main(): Promise<void> {
   const makeToast = () => {
     const t = createToastWindow();
     windows.toast = t;
+    excludeFromCapture(t);
     toastReady = new Promise((resolve) => t.webContents.once("did-finish-load", () => resolve(t)));
   };
   makeToast();
@@ -225,7 +241,12 @@ async function main(): Promise<void> {
     if (state) {
       if (!windows.rec || windows.rec.isDestroyed()) windows.rec = createRecIndicator();
       if (!windows.meeting || windows.meeting.isDestroyed()) windows.meeting = createMeetingWindow();
+      // Keep Nondh AI's own controls out of screen recordings and other apps' screen shares.
+      excludeFromCapture(windows.rec);
+      excludeFromCapture(windows.meeting);
     } else {
+      // A screen clip never outlives its meeting.
+      void screenRecorder.stop();
       // The indicator only goes away once recording has really stopped.
       windows.rec?.destroy();
       windows.rec = null;
@@ -244,12 +265,16 @@ async function main(): Promise<void> {
   meetingService.on("error", (msg: string) => broadcast("meeting:progress", meetingService.recording?.id ?? "", `Audio error: ${msg}`));
 
   // ---- audio playback protocol (decrypts encrypted recordings in memory) ----
+  // vd-audio://<meetingId> → the meeting audio; vd-audio://<meetingId>/<clipId> → a screen clip.
   protocol.handle("vd-audio", (req) => {
-    const id = new URL(req.url).hostname;
-    const m = meetings.get(id);
-    if (!m?.audioFile) return new Response("not found", { status: 404 });
+    const url = new URL(req.url);
+    const m = meetings.get(url.hostname);
+    const clipId = url.pathname.replace(/^\//, "");
+    const clip = clipId ? clips.get(clipId) : null;
+    const file = clipId ? (clip?.meetingId === m?.id ? clip?.file : null) : m?.audioFile;
+    if (!m || !file) return new Response("not found", { status: 404 });
     try {
-      return new Response(readAudio(join(m.dir, m.audioFile)), { headers: { "content-type": "audio/ogg" } });
+      return new Response(readAudio(join(m.dir, file)), { headers: { "content-type": clipId ? "video/webm" : "audio/ogg" } });
     } catch (err) {
       log.error("audio read failed", err);
       return new Response("error", { status: 500 });
@@ -271,6 +296,8 @@ async function main(): Promise<void> {
     meetingService,
     calendar,
     assistant,
+    screenRecorder,
+    clips,
     dictation,
     broadcast,
     startMeeting,
@@ -355,6 +382,7 @@ async function main(): Promise<void> {
           ? { label: "Stop recording meeting", click: () => void meetingService.stop() }
           : { label: "Record a call", click: () => void startMeeting({ kind: "call" }) },
         ...(recording ? [] : [{ label: "Record an in-person meeting", click: () => void startMeeting({ kind: "room" }) }]),
+        ...(screenRecorder.state ? [{ label: "Stop screen recording", click: () => void screenRecorder.stop() }] : []),
         { type: "separator" },
         {
           label: "Quit",
@@ -405,6 +433,7 @@ async function main(): Promise<void> {
       await speech.warm();
       log.info("speech engine ready");
       meetingService.recover();
+      await screenRecorder.recover();
       meetingService.applyRetention();
       setInterval(() => meetingService.applyRetention(), 6 * 3600 * 1000);
       if (settings.get().cleanup.llm.provider === "local" && llmAvailable("local")) {

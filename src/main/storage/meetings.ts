@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import type { MeetingSummary, SpeakerLabel, TranscriptLine } from "@shared/meeting/types";
-import type { MeetingRecord, MeetingKind, MeetingStatus, PersonRecord } from "@shared/types";
+import type { ClipRecord, MeetingRecord, MeetingKind, MeetingStatus, PersonRecord } from "@shared/types";
 import { toFtsQuery } from "./store";
 
 const toBlob = (v: ArrayLike<number>) => Buffer.from(Float32Array.from(v).buffer);
@@ -244,6 +244,77 @@ export class MeetingRepo {
   /** Move one line to another speaker (manual correction). */
   setLineSpeaker(meetingId: string, lineId: string, key: string): void {
     this.db.prepare(`UPDATE meeting_lines SET speaker_key = ?, uncertain = 0 WHERE id = ?`).run(key, `${meetingId}:${lineId}`);
+  }
+}
+
+interface ClipRow {
+  id: string;
+  meeting_id: string;
+  file: string | null;
+  kind: ClipRecord["kind"];
+  label: string;
+  start_ms: number;
+  end_ms: number | null;
+  width: number | null;
+  height: number | null;
+  encrypted: number;
+}
+
+const clipFromRow = (r: ClipRow): ClipRecord => ({
+  id: r.id,
+  meetingId: r.meeting_id,
+  file: r.file,
+  kind: r.kind,
+  label: r.label,
+  startMs: r.start_ms,
+  endMs: r.end_ms,
+  width: r.width,
+  height: r.height,
+  encrypted: !!r.encrypted,
+});
+
+/** Screen recordings: any number of start/stop clips per meeting. */
+export class ClipRepo {
+  constructor(private readonly db: Database.Database) {}
+
+  create(c: { meetingId: string; kind: ClipRecord["kind"]; label: string; startMs: number; file: string }): ClipRecord {
+    const id = randomUUID();
+    this.db
+      .prepare(`INSERT INTO meeting_clips (id, meeting_id, file, kind, label, start_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, c.meetingId, c.file, c.kind, c.label, c.startMs, Date.now());
+    return this.get(id)!;
+  }
+
+  get(id: string): ClipRecord | null {
+    const r = this.db.prepare(`SELECT * FROM meeting_clips WHERE id = ?`).get(id) as ClipRow | undefined;
+    return r ? clipFromRow(r) : null;
+  }
+
+  forMeeting(meetingId: string): ClipRecord[] {
+    return (this.db.prepare(`SELECT * FROM meeting_clips WHERE meeting_id = ? ORDER BY start_ms`).all(meetingId) as ClipRow[]).map(clipFromRow);
+  }
+
+  /** Clips left open by a crash or a stopped meeting. */
+  unfinished(): ClipRecord[] {
+    return (this.db.prepare(`SELECT * FROM meeting_clips WHERE end_ms IS NULL`).all() as ClipRow[]).map(clipFromRow);
+  }
+
+  finish(id: string, p: { endMs: number; file: string | null; width?: number | null; height?: number | null; encrypted?: boolean }): void {
+    this.db
+      .prepare(`UPDATE meeting_clips SET end_ms = ?, file = ?, width = ?, height = ?, encrypted = ? WHERE id = ?`)
+      .run(p.endMs, p.file, p.width ?? null, p.height ?? null, p.encrypted ? 1 : 0, id);
+  }
+
+  setStart(id: string, startMs: number): void {
+    this.db.prepare(`UPDATE meeting_clips SET start_ms = ? WHERE id = ?`).run(startMs, id);
+  }
+
+  setFile(id: string, file: string | null): void {
+    this.db.prepare(`UPDATE meeting_clips SET file = ? WHERE id = ?`).run(file, id);
+  }
+
+  delete(id: string): void {
+    this.db.prepare(`DELETE FROM meeting_clips WHERE id = ?`).run(id);
   }
 }
 

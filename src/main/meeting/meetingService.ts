@@ -12,7 +12,7 @@ import type { Settings } from "@shared/settings";
 import { AudioCapture } from "./audioCapture";
 import { decodeToPcm, encodeOpus, encryptFile } from "./audioFiles";
 import type { SpeechService } from "../speech/speechService";
-import type { MeetingRepo, PeopleRepo } from "../storage/meetings";
+import type { ClipRepo, MeetingRepo, PeopleRepo } from "../storage/meetings";
 import type { LlmClient } from "../llm/llm";
 import { SPEAKER_MODEL } from "../models/registry";
 import { userDataPath } from "../paths";
@@ -63,6 +63,7 @@ export class MeetingService extends EventEmitter {
       speech: SpeechService;
       meetings: MeetingRepo;
       people: PeopleRepo;
+      clips?: ClipRepo;
       llm: LlmClient;
       llmAvailable: (provider: string) => boolean;
     },
@@ -387,8 +388,13 @@ export class MeetingService extends EventEmitter {
     }
   }
 
+  /** Deletes the recordings (audio and screen clips); transcripts and summaries stay. */
   deleteAudio(m: MeetingRecord): void {
     for (const f of ["audio.opus", "audio.opus.enc", "mic.pcm", "system.pcm", "mixed.pcm"]) rmSync(join(m.dir, f), { force: true });
+    for (const c of this.d.clips?.forMeeting(m.id) ?? []) {
+      if (c.file) rmSync(join(m.dir, c.file), { force: true });
+      this.d.clips?.setFile(c.id, null);
+    }
     this.d.meetings.update(m.id, { audioFile: null, audioExpiresAt: null });
   }
 

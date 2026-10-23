@@ -66,6 +66,22 @@ export interface MeetingRecord {
   recovered: boolean;
 }
 
+export type ClipKind = "screen" | "window" | "region";
+
+/** A screen recording made during a meeting; times are ms from the meeting's start. */
+export interface ClipRecord {
+  id: string;
+  meetingId: string;
+  file: string | null;
+  kind: ClipKind;
+  label: string;
+  startMs: number;
+  endMs: number | null;
+  width: number | null;
+  height: number | null;
+  encrypted: boolean;
+}
+
 export interface PersonRecord {
   id: string;
   name: string;

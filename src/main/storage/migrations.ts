@@ -178,4 +178,21 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (owner_type, owner_id, chunk)
   );
   `,
+  // 3: screen recordings attached to a meeting (any number of start/stop clips)
+  `
+  CREATE TABLE meeting_clips (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    file TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('screen', 'window', 'region')),
+    label TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER,
+    width INTEGER,
+    height INTEGER,
+    encrypted INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX meeting_clips_meeting ON meeting_clips(meeting_id, start_ms);
+  `,
 ];

@@ -175,3 +175,51 @@ export function createAssistantWindow(): BrowserWindow {
   loadRoute(win, "assistant");
   return win;
 }
+
+/** Hidden window that runs screen capture (MediaRecorder); never throttled in the background. */
+export function createScreenRecorderWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 320,
+    height: 200,
+    show: false,
+    skipTaskbar: true,
+    webPreferences: { preload, sandbox: false, backgroundThrottling: false },
+  });
+  loadRoute(win, "screen-recorder");
+  return win;
+}
+
+/** Full-screen overlay on one display for dragging out a region to record. */
+export function createRegionWindow(display: Electron.Display): BrowserWindow {
+  const { x, y, width, height } = display.bounds;
+  const win = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: { preload, sandbox: false },
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setContentProtection(true); // the selection overlay itself never appears in recordings
+  loadRoute(win, "region");
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+  });
+  return win;
+}
+
+/**
+ * Nondh AI's own on-screen controls are excluded from screen recordings (and from screen
+ * sharing in other apps) on Windows 10 2004+.
+ */
+export function excludeFromCapture(win: BrowserWindow | null): void {
+  if (win && !win.isDestroyed()) win.setContentProtection(true);
+}

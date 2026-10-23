@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AssistantState, RecordingState } from "@shared/ipc";
+import type { AssistantState, RecordingState, ScreenSource, ScreenState } from "@shared/ipc";
 import type { TranscriptLine } from "@shared/meeting/types";
 import { Badge, Button } from "../components/ui";
 import { Markdown } from "../components/Markdown";
@@ -86,6 +86,7 @@ export function MeetingLive() {
         <div className="truncate text-xs text-fg-muted">{rec.title}</div>
         <Level value={levels.mic} label="My mic" />
         {rec.kind === "call" && <Level value={levels.system} label="Call" />}
+        <ScreenControls />
         <div className="rounded-md bg-amber-500/10 p-2 text-xs leading-relaxed">
           Many places require everyone's consent to record, even on calls you don't host. Let them know:
           <Button
@@ -123,6 +124,7 @@ export function MeetingLive() {
 /** Always-visible REC chip at the top of the screen while recording. */
 export function RecIndicator() {
   const rec = useRecording();
+  const screen = useScreenState();
   const now = useNow();
   const [level, setLevel] = useState(0);
   useEffect(() => {
@@ -136,6 +138,142 @@ export function RecIndicator() {
         <span className="size-2 rounded-full bg-red-500" style={{ opacity: 0.5 + Math.min(0.5, level * 20) }} />
         REC {clock(now - rec.startedAt)}
         <span className="text-neutral-400">{rec.kind === "call" ? "call" : "room"}</span>
+        {screen && <span className="rounded bg-red-500 px-1.5 py-px text-[10px] font-bold tracking-wide">SCREEN</span>}
+      </div>
+    </div>
+  );
+}
+
+function useScreenState() {
+  const [s, setS] = useState<ScreenState | null>(null);
+  useEffect(() => {
+    void window.vd.invoke("screen:state").then(setS);
+    return window.vd.on("screen:state", setS);
+  }, []);
+  return s;
+}
+
+const MonitorIcon = () => (
+  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <rect x="3" y="4" width="18" height="12" rx="2" />
+    <path d="M8 20h8M12 16v4" />
+  </svg>
+);
+
+/**
+ * "Record screen" in the live meeting window: pick the entire screen, one window, or a region,
+ * then start/stop as many clips as needed during the meeting.
+ */
+function ScreenControls() {
+  const screen = useScreenState();
+  const now = useNow();
+  const [picker, setPicker] = useState(false);
+  const [error, setError] = useState("");
+
+  if (screen) {
+    return (
+      <div className="flex items-center gap-2 rounded-md bg-red-500/10 p-2 text-xs">
+        <span className="size-2 animate-pulse rounded-full bg-red-500" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">
+          Recording screen · {screen.label} · <span className="tabular-nums">{clock(now - screen.startedAt)}</span>
+        </span>
+        <Button variant="danger" className="h-7" onClick={() => void window.vd.invoke("screen:stop")}>
+          Stop screen
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Button className="h-7 w-full" onClick={() => setPicker(true)} title="Record your screen, a window, or a region while the meeting runs">
+        <MonitorIcon /> Record screen
+      </Button>
+      {error && <p className="mt-1 text-xs text-warn">{error}</p>}
+      {picker && (
+        <SourcePicker
+          onClose={() => setPicker(false)}
+          onError={(m) => {
+            setError(m);
+            setPicker(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SourcePicker({ onClose, onError }: { onClose: () => void; onError: (m: string) => void }) {
+  const [tab, setTab] = useState<"screen" | "window" | "region">("screen");
+  const [sources, setSources] = useState<ScreenSource[] | null>(null);
+  useEffect(() => {
+    void window.vd.invoke("screen:sources").then(setSources).catch((e: Error) => onError(e.message));
+  }, []);
+  const screens = sources?.filter((s) => s.kind === "screen") ?? [];
+  const wins = sources?.filter((s) => s.kind === "window") ?? [];
+  const clean = (m: string) => m.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+
+  const start = async (src: ScreenSource, kind: "screen" | "window" | "region") => {
+    try {
+      if (kind === "region") {
+        onClose();
+        const picked = await window.vd.invoke("screen:pickRegion", src.displayId);
+        if (!picked) return;
+        await window.vd.invoke("screen:start", { sourceId: src.id, kind, label: `Region of ${src.name}`, region: picked.rect, displayId: picked.displayId });
+      } else {
+        await window.vd.invoke("screen:start", { sourceId: src.id, kind, label: src.name });
+        onClose();
+      }
+    } catch (e) {
+      onError(clean((e as Error).message));
+    }
+  };
+
+  const list = tab === "window" ? wins : screens;
+  return (
+    <div className="fixed inset-0 z-10 flex flex-col bg-bg" role="dialog" aria-label="Choose what to record">
+      <div className="flex items-center gap-2 border-b border-line p-3">
+        <span className="font-semibold">Record screen</span>
+        <button className="ml-auto text-fg-muted hover:text-fg" onClick={onClose} aria-label="Cancel">
+          ✕
+        </button>
+      </div>
+      <div className="flex gap-1 border-b border-line px-3" role="tablist">
+        {(
+          [
+            ["screen", "Entire screen"],
+            ["window", "Window"],
+            ["region", "Region"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === k ? "border-accent font-medium" : "border-transparent text-fg-muted"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="px-3 pt-2 text-xs text-fg-muted">
+        {tab === "region"
+          ? "Pick a screen, then drag a rectangle over the part you want to record."
+          : "Only what you choose is recorded, and only until you press Stop. Nondh AI's own windows are never captured."}
+      </p>
+      <div className="grid flex-1 grid-cols-2 content-start gap-3 overflow-y-auto p-3">
+        {!sources && <p className="col-span-2 text-sm text-fg-muted">Loading…</p>}
+        {sources && list.length === 0 && <p className="col-span-2 text-sm text-fg-muted">Nothing to show.</p>}
+        {list.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => void start(s, tab === "region" ? "region" : s.kind)}
+            className="rounded-md border border-line p-1.5 text-left hover:border-accent hover:bg-muted/50"
+          >
+            <img src={s.thumbnail} alt="" className="aspect-video w-full rounded bg-black object-contain" />
+            <span className="mt-1 block truncate text-xs">{s.name}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
