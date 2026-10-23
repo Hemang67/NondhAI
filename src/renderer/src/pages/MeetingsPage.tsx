@@ -285,7 +285,7 @@ function SummaryView({ s }: { s: NonNullable<MeetingRecord["summary"]> }) {
                 <input type="checkbox" aria-label={a.task} className="mt-1" />
                 <span>
                   {a.task}
-                  {a.owner && <Badge tone="accent">{a.owner}</Badge>}
+                  {a.owner && <span className="ml-1.5"><Badge tone="accent">{a.owner}</Badge></span>}
                   {a.due && <span className="ml-1 text-xs text-fg-muted">due {a.due}</span>}
                 </span>
               </li>

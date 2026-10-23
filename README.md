@@ -14,6 +14,20 @@ Offline-first dictation and meeting transcription for Windows. Third-party notic
 
 Everything runs locally by default (Parakeet / Whisper / Qwen via llama.cpp). Cloud providers are optional, use your own keys, and are marked "cloud" wherever they're used.
 
+## Screenshots
+
+**Meeting summary**: key points, decisions, action items with owners, and open questions, made after the call.
+
+![Meeting summary](docs/screenshots/meeting-summary.png)
+
+**Transcript with speakers**: who said what and when, with names remembered by voice.
+
+![Transcript with speakers](docs/screenshots/meeting-transcript.png)
+
+**Video editor**: "Find sensitive info" spotted the password, API key and card number in a screen recording and blurred them.
+
+![Video editor blurring sensitive info](docs/screenshots/video-editor-blur.png)
+
 ## Download
 
 **[Download the latest version](https://github.com/Hemang67/NondhAI/releases/latest)**: get `NondhAI-Setup-<version>.exe` and run it (Windows 10/11, 64-bit). Every earlier version is on the [Releases page](https://github.com/Hemang67/NondhAI/releases).
@@ -34,3 +48,7 @@ npm run release        # bump "version" and commit first: builds, tags vX.Y.Z, p
 Bundled binaries live in `resources/bin` (git-ignored): `llama/` (llama.cpp Vulkan build), `whisper/Release/` (whisper.cpp), plus `vd-input.exe` and `vd-audio.exe` built from `native/`. Models download from the app's Models page into the models folder you choose.
 
 Design: `docs/PLAN.md`. Evidence per phase: `docs/evidence/`.
+
+## License
+
+[MIT](LICENSE) © 2026 Hemang Rathod. Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

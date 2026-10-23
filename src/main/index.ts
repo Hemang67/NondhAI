@@ -404,7 +404,7 @@ async function main(): Promise<void> {
   ipcMain.handle("updates:status", () => updater.status);
   ipcMain.handle("updates:check", () => updater.check());
   ipcMain.handle("updates:install", () => updater.installNow());
-  updater.configure(settings.get().updates.feedUrl);
+  updater.configure(settings.get().updates.auto, settings.get().updates.feedUrl);
 
   // ---- local API ----
   const api = new ApiServer();
@@ -443,7 +443,7 @@ async function main(): Promise<void> {
       else detector.stop();
     }
     if (JSON.stringify(next.api) !== JSON.stringify(prev.api)) void applyApi();
-    if (next.updates.feedUrl !== prev.updates.feedUrl) updater.configure(next.updates.feedUrl);
+    if (next.updates.feedUrl !== prev.updates.feedUrl || next.updates.auto !== prev.updates.auto) updater.configure(next.updates.auto, next.updates.feedUrl);
   });
 
   // ---- tray ----

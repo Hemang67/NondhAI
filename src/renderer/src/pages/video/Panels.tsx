@@ -190,7 +190,7 @@ export function BlurPanel(c: Ctx & { scan: VideoProgress | undefined; onScan: ()
                   >
                     <div className="truncate font-medium">{b.suggested!.reason}</div>
                     <div className="truncate font-mono text-fg-muted">
-                      {redact(b.suggested!.text)} · {clock(b.start * 1000)}–{clock(b.end * 1000)}
+                      {b.suggested!.text ? redact(b.suggested!.text) : "not readable by OCR"} · {clock(b.start * 1000)}–{clock(b.end * 1000)}
                     </div>
                   </button>
                   <Button className="h-6 px-2 text-xs" onClick={() => accept([b.id])}>

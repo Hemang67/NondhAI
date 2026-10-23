@@ -56,8 +56,12 @@ export interface Settings {
   assistant: { includeScreenshot: boolean; answerMode: "panel" | "paste" };
   api: { enabled: boolean; port: number };
   calendar: { googleClientId: string; googleClientSecret: string; microsoftClientId: string };
-  /** Update feed: a URL or a folder holding latest.yml + the installer. Empty = no automatic updates. */
-  updates: { feedUrl: string };
+  /**
+   * auto: check for and download new versions in the background (installed on restart).
+   * feedUrl: where from: a URL or a folder holding latest.yml + the installer; empty = the app's
+   * GitHub Releases.
+   */
+  updates: { auto: boolean; feedUrl: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -103,7 +107,7 @@ export const DEFAULT_SETTINGS: Settings = {
   assistant: { includeScreenshot: false, answerMode: "panel" },
   api: { enabled: false, port: 47821 },
   calendar: { googleClientId: "", googleClientSecret: "", microsoftClientId: "" },
-  updates: { feedUrl: "" },
+  updates: { auto: true, feedUrl: "" },
 };
 
 /** Deep-merge saved settings over defaults so new fields get defaults after upgrades. */

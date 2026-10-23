@@ -30,6 +30,8 @@ extraResources:
     filter: ["icon.ico", "icon.png", "tray.png", "tray-recording.png", "ocr.ps1"]
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
+  - from: LICENSE
+    to: LICENSE.txt
 win:
   target:
     - target: nsis

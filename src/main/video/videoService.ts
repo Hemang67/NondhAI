@@ -2,7 +2,7 @@ import { dialog, shell } from "electron";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import type { ClipRecord, MeetingRecord } from "@shared/types";
@@ -26,7 +26,7 @@ import {
 } from "@shared/video/project";
 import { buildRender, parseProgress } from "@shared/video/render";
 import { displaySize, importMode, parseProbe } from "@shared/video/probe";
-import { intoCrop, suggestBlurs, type OcrFrame } from "@shared/video/sensitive";
+import { hiddenText, intoCrop, suggestBlurs, type OcrFrame } from "@shared/video/sensitive";
 import type { ClipRepo, MeetingRepo } from "../storage/meetings";
 import type { LibraryVideoRepo, VideoProjectRepo } from "../storage/videoProjects";
 import { encryptFile, ffmpegPath, readAudio } from "../meeting/audioFiles";
@@ -562,14 +562,16 @@ export class VideoService extends EventEmitter {
         const c = inputs.files[s.clipId]!;
         const len = s.out - s.in;
         const prefix = `s${String(k).padStart(3, "0")}_`;
-        // Same scale/pad as the export, so boxes line up with the exported frame.
+        // Same scale/pad as the export, so boxes line up with the exported frame. Each frame also
+        // as raw gray pixels, to find lines OCR withholds (see hiddenText).
         await this.ffmpeg(id, [
           "-y", "-hide_banner", "-loglevel", "error",
           "-ss", String(s.in), "-t", String(len), "-i", c.file,
-          "-vf", `fps=1/${interval},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`,
-          join(tmp, `${prefix}%05d.png`),
+          "-filter_complex", `[0:v]fps=1/${interval},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,split[c][g];[g]format=gray[gray]`,
+          "-map", "[c]", join(tmp, `${prefix}%05d.png`),
+          "-map", "[gray]", "-c:v", "rawvideo", "-f", "image2", join(tmp, `${prefix}%05d.gray`),
         ]);
-        for (const f of readdirSync(tmp).filter((f) => f.startsWith(prefix)).sort()) {
+        for (const f of readdirSync(tmp).filter((f) => f.startsWith(prefix) && f.endsWith(".png")).sort()) {
           const n = Number(f.slice(prefix.length, -4)) - 1;
           frameTimes.set(f, t0 + n * interval);
         }
@@ -579,7 +581,17 @@ export class VideoService extends EventEmitter {
       const frames = await this.ocr(id, tmp, frameTimes.size, (done) =>
         this.progress(id, { phase: "scanning", fraction: 0.15 + 0.85 * (done / Math.max(1, frameTimes.size)) }),
       );
-      const timed: OcrFrame[] = frames.flatMap((f) => (frameTimes.has(f.frame) ? [{ ...f, time: frameTimes.get(f.frame)! }] : []));
+      const timed: OcrFrame[] = frames.flatMap((f) => {
+        if (!frameTimes.has(f.frame)) return [];
+        const grayFile = join(tmp, f.frame.replace(/\.png$/, ".gray"));
+        let hidden: OcrFrame["hidden"] = [];
+        if (existsSync(grayFile)) {
+          const gray = readFileSync(grayFile);
+          if (gray.length === f.width * f.height) hidden = hiddenText(gray, f.width, f.height, f.lines.flatMap((l) => l.words));
+          rmSync(grayFile, { force: true });
+        }
+        return [{ ...f, time: frameTimes.get(f.frame)!, hidden }];
+      });
       const boxes = suggestBlurs(timed, interval)
         .map((b) => ({ ...b, rect: intoCrop(b.rect, spec.crop), end: Math.min(total, b.end) }))
         .filter((b): b is BlurBox => !!b.rect);

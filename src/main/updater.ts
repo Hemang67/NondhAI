@@ -2,13 +2,15 @@ import { app, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
+import { UPDATE_FEED } from "@shared/brand";
 import { log } from "./log";
 
 export type UpdateStatus = { state: "off" | "idle" | "checking" | "available" | "downloading" | "ready" | "none" | "error"; version?: string; error?: string };
 
 /**
- * Updates from a "generic" feed: a web URL or a local/network folder containing the
- * electron-builder output (latest.yml + NondhAI-Setup-x.y.z.exe). The installer is unsigned,
+ * Updates from a "generic" feed: by default the app's GitHub Releases (…/releases/latest/download
+ * always serves the newest latest.yml and installer), or a web URL or local/network folder holding
+ * the electron-builder output (latest.yml + NondhAI-Setup-x.y.z.exe). The installer is unsigned,
  * so no publisher check is configured.
  */
 export class Updater {
@@ -34,10 +36,11 @@ export class Updater {
     this.onChange(s);
   }
 
-  configure(feed: string): void {
+  configure(auto: boolean, feedUrl: string): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (!feed.trim() || !app.isPackaged) {
+    const feed = feedUrl.trim() || UPDATE_FEED;
+    if (!auto || !app.isPackaged) {
       this.set({ state: "off" });
       return;
     }

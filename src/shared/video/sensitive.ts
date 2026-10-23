@@ -14,6 +14,8 @@ export interface OcrFrame {
   width: number;
   height: number;
   lines: Array<{ words: OcrWord[] }>;
+  /** Text-shaped areas OCR returned nothing for (see hiddenText), normalized. */
+  hidden?: NRect[];
 }
 
 const LABEL = /^(password|passwd|pwd|passcode|pass|pin|secret|token|apikey|api[-_]?key|key|otp|cvv|cvc|credentials?|private)$/i;
@@ -137,6 +139,8 @@ export function findSensitive(frame: OcrFrame): Hit[] {
       if (reason) add([w], reason);
     }
   }
+  // Windows OCR withholds whole lines that contain a valid card number; flag those areas.
+  for (const r of frame.hidden ?? []) hits.push({ rect: r, reason: HIDDEN_REASON, text: "" });
   return hits;
 }
 
@@ -195,4 +199,83 @@ export function dropCovered(suggestions: BlurBox[], existing: BlurBox[]): BlurBo
   return suggestions.filter(
     (s) => !existing.some((b) => !b.suggested && b.start <= s.start + 0.5 && b.end >= s.end - 0.5 && iou(b.rect, s.rect) > 0.4),
   );
+}
+
+export const HIDDEN_REASON = "text Windows won't read (often a card number)";
+
+/**
+ * Windows OCR deliberately returns nothing for a line that contains a valid card number (not even
+ * the label). Such lines are found here as rows of text-like marks in the picture that no OCR word
+ * covers. `gray` is the frame as 8-bit luminance (w × h); `words` are the OCR word boxes in the
+ * same pixels. Returns normalized rectangles, padded like other suggestions.
+ */
+export function hiddenText(gray: Uint8Array, w: number, h: number, words: Array<{ x: number; y: number; w: number; h: number }>): NRect[] {
+  // Background: the most common brightness. Ink: clearly different from it.
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i += 7) hist[gray[i]!]!++;
+  let bg = 0;
+  for (let v = 1; v < 256; v++) if (hist[v]! > hist[bg]!) bg = v;
+  const ink = (x: number, y: number) => Math.abs(gray[y * w + x]! - bg) > 70;
+
+  // Ignore what OCR already read (slightly enlarged).
+  const covered = new Uint8Array(w * h);
+  for (const b of words) {
+    const m = Math.max(2, Math.round(b.h * 0.3));
+    for (let y = Math.max(0, b.y - m); y < Math.min(h, b.y + b.h + m); y++) covered.fill(1, y * w + Math.max(0, b.x - m), y * w + Math.min(w, b.x + b.w + m));
+  }
+  const free = (x: number, y: number) => !covered[y * w + x] && ink(x, y);
+
+  // Rows with uncovered ink, grouped into bands of text height.
+  const rowInk = new Uint32Array(h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (free(x, y)) rowInk[y]!++;
+  const bands: Array<[number, number]> = [];
+  let start = -1;
+  for (let y = 0; y <= h; y++) {
+    const on = y < h && rowInk[y]! >= 2;
+    if (on && start < 0) start = y;
+    if (!on && start >= 0) {
+      bands.push([start, y]);
+      start = -1;
+    }
+  }
+  const out: NRect[] = [];
+  for (const [y0, y1] of bands) {
+    const bh = y1 - y0;
+    if (bh < Math.max(6, h * 0.012) || bh > h * 0.09) continue; // not text-sized
+    // Columns with ink inside the band → runs (glyphs) → clusters split at wide gaps (words stay together).
+    const col = new Uint8Array(w);
+    for (let x = 0; x < w; x++) for (let y = y0; y < y1; y++) if (free(x, y)) { col[x] = 1; break; }
+    const runs: Array<[number, number]> = [];
+    for (let x = 0, s = -1; x <= w; x++) {
+      const on = x < w && col[x] === 1;
+      if (on && s < 0) s = x;
+      if (!on && s >= 0) {
+        runs.push([s, x]);
+        s = -1;
+      }
+    }
+    let cluster: Array<[number, number]> = [];
+    const flush = () => {
+      // A line of text: many narrow glyphs, a reasonable width, mostly gaps between them.
+      const span = cluster.length ? cluster.at(-1)![1] - cluster[0]![0] : 0;
+      const narrow = cluster.filter(([a, b]) => b - a <= bh * 1.2).length;
+      if (cluster.length >= 12 && narrow >= cluster.length * 0.8 && span >= w * 0.08 && span >= bh * 6) {
+        const pad = Math.max(4, bh * 0.35);
+        const x0 = cluster[0]![0];
+        out.push({
+          x: Math.max(0, (x0 - pad) / w),
+          y: Math.max(0, (y0 - pad) / h),
+          w: Math.min(1, (span + pad * 2) / w),
+          h: Math.min(1, (bh + pad * 2) / h),
+        });
+      }
+      cluster = [];
+    };
+    for (const r of runs) {
+      if (cluster.length && r[0] - cluster.at(-1)![1] > bh * 2) flush();
+      cluster.push(r);
+    }
+    flush();
+  }
+  return out;
 }

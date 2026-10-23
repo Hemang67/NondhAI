@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LlmProvider, LlmTarget, Settings } from "@shared/settings";
-import { APP_NAME, DEVELOPER, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
+import { APP_NAME, DEVELOPER, RELEASES_URL, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { Badge, Button, Card, Input, Row, Select, Switch } from "../components/ui";
 
 const LLM_PROVIDERS: Array<[LlmProvider, string]> = [
@@ -390,7 +390,7 @@ function UpdatesCard({ s, update }: { s: Settings; update: (p: unknown) => Promi
     return window.vd.on("updates:status", setSt);
   }, []);
   const label: Record<string, string> = {
-    off: "Automatic updates are off.",
+    off: s.updates.auto ? "Updates are checked in the installed app." : "Automatic updates are off.",
     idle: "Waiting to check.",
     checking: "Checking…",
     none: "You're up to date.",
@@ -399,9 +399,23 @@ function UpdatesCard({ s, update }: { s: Settings; update: (p: unknown) => Promi
     error: `Update check failed: ${st.error ?? ""}`,
   };
   return (
-    <Card title="Updates" description="Point Nondh AI at a folder or web address where you put new builds (latest.yml + the installer). Updates download in the background and install on restart.">
-      <Row label="Update source" hint="e.g. D:\Nondh AI-releases or https://example.com/nondh-ai">
-        <Input defaultValue={s.updates.feedUrl} onBlur={(e) => void update({ updates: { feedUrl: e.target.value.trim() } })} />
+    <Card
+      title="Updates"
+      description={
+        <>
+          New versions come from{" "}
+          <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+            Nondh AI on GitHub
+          </a>
+          . They download in the background and install the next time Nondh AI restarts; your data is kept.
+        </>
+      }
+    >
+      <Row label="Check for updates automatically" hint="When Nondh AI starts, then about every 6 hours.">
+        <Switch label="Check for updates automatically" checked={s.updates.auto} onChange={(v) => void update({ updates: { auto: v } })} />
+      </Row>
+      <Row label="Update source (advanced)" hint="Leave empty for GitHub. Or a folder or web address holding latest.yml + the installer.">
+        <Input placeholder="GitHub Releases" defaultValue={s.updates.feedUrl} onBlur={(e) => void update({ updates: { feedUrl: e.target.value.trim() } })} />
       </Row>
       <div className="flex items-center gap-2 pt-2 text-sm">
         <span className="text-fg-muted">{label[st.state] ?? st.state}</span>
