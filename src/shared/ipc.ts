@@ -3,6 +3,7 @@ import type { Rect } from "./screen";
 import type { Settings } from "./settings";
 import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
 import type { FolderRecord, NoteRecord, SearchHit } from "./notes";
+import type { BlurBox, ProjectSpec, SubtitleLine, VideoProject } from "./video/project";
 
 export interface ScreenSource {
   id: string;
@@ -37,6 +38,28 @@ export interface MeetingDetail {
   suggestions: string[];
   /** Screen recordings made during the meeting, in time order. */
   clips: ClipRecord[];
+}
+
+/** A meeting with finished screen recordings, as listed in the video library. */
+export interface LibraryMeeting {
+  id: string;
+  title: string;
+  startedAt: number;
+  clips: ClipRecord[];
+}
+
+export interface VideoProjectDetail {
+  project: VideoProject;
+  meeting: { id: string; title: string; hasAudio: boolean };
+  clips: ClipRecord[];
+  lines: TranscriptLine[];
+  speakers: Record<string, string>;
+}
+
+export interface VideoProgress {
+  phase: "preparing" | "rendering" | "scanning" | "done" | "error" | "cancelled";
+  fraction: number;
+  error?: string;
 }
 
 export type ExportFormat = "md" | "txt" | "docx" | "srt" | "vtt";
@@ -129,6 +152,18 @@ export interface InvokeMap {
   "screen:state": [[], ScreenState | null];
   "clips:delete": [[id: string], void];
   "region:done": [[rect: Rect | null], void];
+  // video library & editor
+  "video:library": [[], { meetings: LibraryMeeting[]; projects: VideoProject[] }];
+  "video:create": [[meetingId: string, clipIds: string[], title?: string], VideoProject];
+  "video:get": [[id: string], VideoProjectDetail | null];
+  "video:save": [[id: string, patch: { title?: string; spec?: ProjectSpec }], VideoProject | null];
+  "video:subtitles": [[id: string, spec: ProjectSpec], SubtitleLine[]];
+  "video:delete": [[id: string], void];
+  "video:export": [[id: string], void];
+  "video:cancel": [[id: string], void];
+  "video:saveCopy": [[id: string], string | null];
+  "video:findSensitive": [[id: string, spec: ProjectSpec], BlurBox[]];
+  "video:pickAsset": [[id: string, kind: "image" | "audio"], { file: string; name: string } | null];
 }
 
 /** main → renderer events */
@@ -151,6 +186,8 @@ export interface EventMap {
   "screen:state": [ScreenState | null];
   "screen:begin": [job: { clipId: string; sourceId: string; region: Rect | null; display: { width: number; height: number } | null }];
   "screen:end": [clipId: string];
+  "video:progress": [id: string, p: VideoProgress];
+  "video:changed": [];
 }
 
 /** renderer → main fire-and-forget */
@@ -182,11 +219,14 @@ export const INVOKE_CHANNELS = [
   "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming",
   "updates:status", "updates:check", "updates:install",
   "screen:sources", "screen:pickRegion", "screen:start", "screen:stop", "screen:state", "clips:delete", "region:done",
+  "video:library", "video:create", "video:get", "video:save", "video:subtitles", "video:delete", "video:export", "video:cancel",
+  "video:saveCopy", "video:findSensitive", "video:pickAsset",
 ] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
   "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",
   "meeting:state", "meeting:line", "meeting:level", "meeting:progress", "meetings:changed", "people:changed",
   "notes:changed", "toast:show", "assistant:state", "updates:status", "screen:state", "screen:begin", "screen:end",
+  "video:progress", "video:changed",
 ] as const satisfies Keys<EventMap>;
 export const SEND_CHANNELS = [
   "recorder:chunk", "recorder:started", "recorder:stopped", "screen:chunk", "screen:started", "screen:ended",
@@ -198,4 +238,6 @@ export interface VdApi {
   on<K extends keyof EventMap>(channel: K, cb: (...args: EventMap[K]) => void): () => void;
   /** Absolute path of a file dropped onto the window (Electron webUtils). */
   pathForFile(file: File): string;
+  /** Base URL of the app's local media server (meeting audio, clips, edits). */
+  mediaBase(): string;
 }

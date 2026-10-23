@@ -4,6 +4,8 @@ Offline-first dictation and meeting transcription for Windows. Third-party notic
 
 - **Dictation**: hold `Ctrl+Win`, speak, release. Clean text is pasted into the focused app, and your clipboard is put back afterwards. Double-tap to lock recording on. `Ctrl+Win+T` translates; `Ctrl+Win+A` is the assistant (edits selected text, or answers).
 - **Meetings**: `Ctrl+Win+M`, the tray, or the "call detected" prompt. Your mic and the call audio are recorded as separate tracks, with echo removal, a live transcript, then speaker separation, voice memory, a summary, Q&A and exports.
+- **Screen recording**: during a meeting, record the entire screen, one window, or a region, as many times as you like. A visible badge shows while it records.
+- **Video library**: edit those recordings. Cut, split, reorder, crop, blur, add text, images and music, and burn in subtitles made from the transcript. "Find sensitive info" reads the screen with Windows OCR on this computer and suggests blurs over passwords, API keys, tokens and card numbers for you to review. Several recordings from the same meeting can be merged into one video after you confirm. Exports are MP4 files; your originals are never changed.
 - **Notes and search**: rich-text notes in folders, keyword + semantic search, AI actions.
 - **Integrations**: local API and MCP server (`docs/API.md`), Google/Microsoft calendar (`docs/CALENDAR.md`).
 

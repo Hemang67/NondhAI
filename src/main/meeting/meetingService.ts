@@ -388,7 +388,7 @@ export class MeetingService extends EventEmitter {
     }
   }
 
-  /** Deletes the recordings (audio and screen clips); transcripts and summaries stay. */
+  /** Deletes the recordings (audio, screen clips and videos made from them); transcripts and summaries stay. */
   deleteAudio(m: MeetingRecord): void {
     for (const f of ["audio.opus", "audio.opus.enc", "mic.pcm", "system.pcm", "mixed.pcm"]) rmSync(join(m.dir, f), { force: true });
     for (const c of this.d.clips?.forMeeting(m.id) ?? []) {
@@ -396,6 +396,8 @@ export class MeetingService extends EventEmitter {
       this.d.clips?.setFile(c.id, null);
     }
     this.d.meetings.update(m.id, { audioFile: null, audioExpiresAt: null });
+    // Edited videos contain the same audio and screen content.
+    this.emit("audioDeleted", m);
   }
 
   deleteMeeting(m: MeetingRecord): void {

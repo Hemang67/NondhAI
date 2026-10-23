@@ -195,4 +195,20 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX meeting_clips_meeting ON meeting_clips(meeting_id, start_ms);
   `,
+  // 4: video edits made from a meeting's screen clips (one clip, or several merged)
+  `
+  CREATE TABLE video_projects (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    spec_json TEXT NOT NULL,
+    export_file TEXT,
+    export_status TEXT NOT NULL DEFAULT 'none' CHECK (export_status IN ('none', 'rendering', 'done', 'error')),
+    export_error TEXT,
+    exported_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX video_projects_meeting ON video_projects(meeting_id);
+  `,
 ];

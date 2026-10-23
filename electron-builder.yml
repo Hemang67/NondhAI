@@ -27,7 +27,7 @@ extraResources:
     filter: ["vd-input.exe", "vd-audio.exe"]
   - from: resources
     to: .
-    filter: ["icon.ico", "icon.png", "tray.png", "tray-recording.png"]
+    filter: ["icon.ico", "icon.png", "tray.png", "tray-recording.png", "ocr.ps1"]
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
 win:

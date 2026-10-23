@@ -10,9 +10,12 @@ import { MeetingsPage } from "./MeetingsPage";
 import { NotesPage } from "./NotesPage";
 import { SearchPage } from "./SearchPage";
 import { PeoplePage } from "./PeoplePage";
+import { LibraryPage } from "./video/LibraryPage";
+import { VideoEditor } from "./video/VideoEditor";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "meetings", label: "Meetings" },
+  { id: "library", label: "Video library" },
   { id: "notes", label: "Notes" },
   { id: "history", label: "Dictations" },
   { id: "people", label: "People & voices" },
@@ -79,9 +82,10 @@ export function Panel() {
         </nav>
         <main className="min-w-0 flex-1 overflow-hidden">
           {nav.tab === "meetings" && <MeetingsPage key={nav.meetingId ?? "list"} initialId={nav.meetingId} at={nav.at} />}
+          {nav.tab === "library" && (nav.projectId ? <VideoEditor key={nav.projectId} id={nav.projectId} /> : <LibraryPage />)}
           {nav.tab === "notes" && <NotesPage initialId={nav.noteId} />}
           {nav.tab === "search" && <SearchPage key={nav.query} initialQuery={nav.query ?? ""} />}
-          {nav.tab !== "meetings" && nav.tab !== "notes" && nav.tab !== "search" && (
+          {!["meetings", "library", "notes", "search"].includes(nav.tab) && (
             <div className="h-full overflow-y-auto">
               <div className="mx-auto max-w-4xl p-6">
                 {nav.tab === "history" && <HistoryPage />}

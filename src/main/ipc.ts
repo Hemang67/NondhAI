@@ -10,6 +10,7 @@ import type { SettingsStore } from "./settingsStore";
 import type { Store } from "./storage/store";
 import type { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
 import type { ScreenRecorder } from "./screen/screenRecorder";
+import type { VideoService } from "./video/videoService";
 import type { NotesRepo } from "./storage/notes";
 import type { SpeechService } from "./speech/speechService";
 import type { LlmClient } from "./llm/llm";
@@ -42,6 +43,7 @@ export interface AppContext {
   assistant: AssistantService;
   screenRecorder: ScreenRecorder;
   clips: ClipRepo;
+  video: VideoService;
   dictation: DictationController;
   broadcast: (channel: string, ...args: unknown[]) => void;
   startMeeting: (opts: { kind: "call" | "room"; title?: string; sourceApp?: string | null }) => Promise<RecordingState>;
@@ -375,7 +377,30 @@ export function registerIpc(ctx: AppContext): void {
     const m = c ? meetings.get(c.meetingId) : null;
     if (c && m) ctx.screenRecorder.deleteClip(c, m.dir);
     broadcast("meetings:changed");
+    broadcast("video:changed");
   });
+
+  // ---- video library & editor ----
+  const video = ctx.video;
+  const changed = <T>(v: T): T => {
+    broadcast("video:changed");
+    return v;
+  };
+  handle("video:library", () => video.library());
+  handle("video:create", (meetingId, clipIds, title) => changed(video.create(meetingId, clipIds, title)));
+  handle("video:get", (id) => video.get(id));
+  handle("video:save", (id, patch) => changed(video.save(id, patch)));
+  handle("video:subtitles", (id, spec) => video.subtitlesFor(id, spec));
+  handle("video:delete", (id) => changed(video.delete(id)));
+  handle("video:export", (id) => {
+    // Runs in the background; progress and the result arrive as video:progress events.
+    void video.export(id).finally(() => broadcast("video:changed"));
+    broadcast("video:changed");
+  });
+  handle("video:cancel", (id) => video.cancel(id));
+  handle("video:saveCopy", (id) => video.saveCopy(id));
+  handle("video:findSensitive", (id, spec) => video.findSensitive(id, spec));
+  handle("video:pickAsset", (id, kind) => video.pickAsset(id, kind));
 
   // ---- calendar ----
   handle("calendar:status", () => ctx.calendar.status());

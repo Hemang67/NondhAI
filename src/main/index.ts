@@ -1,14 +1,17 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, Tray } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } from "electron";
 import { Updater } from "./updater";
 import { dirname, join } from "node:path";
-import { existsSync } from "node:fs";
-import type { PillState } from "@shared/types";
+import { existsSync, statSync } from "node:fs";
+import type { MeetingRecord, PillState } from "@shared/types";
 import { buildCleanupMessages } from "@shared/cleanup/llmCleanup";
 import { SettingsStore } from "./settingsStore";
 import { modelsDir as resolveModelsDir, userDataPath } from "./paths";
 import { Store } from "./storage/store";
 import { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
 import { ScreenRecorder } from "./screen/screenRecorder";
+import { MediaServer } from "./mediaServer";
+import { VideoProjectRepo } from "./storage/videoProjects";
+import { VideoService } from "./video/videoService";
 import { NotesRepo } from "./storage/notes";
 import { getSecret, hasSecret, type SecretName } from "./secrets";
 import { InputHelper } from "./native/inputHelper";
@@ -51,12 +54,13 @@ if (process.env.NONDH_FAKE_MIC) {
 }
 // NONDH_DEBUG_PORT=<port> lets test scripts drive the UI over the Chrome DevTools protocol
 // (localhost only). Never set in normal use.
+// NONDH_USER_DATA=<dir> runs against a separate profile (test data never touches yours).
+if (process.env.NONDH_USER_DATA) app.setPath("userData", process.env.NONDH_USER_DATA);
 if (process.env.NONDH_DEBUG_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.NONDH_DEBUG_PORT);
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 }
 
-protocol.registerSchemesAsPrivileged([{ scheme: "vd-audio", privileges: { stream: true, supportFetchAPI: true, bypassCSP: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -105,6 +109,10 @@ function applyLoginItem(enabled: boolean): void {
 }
 
 async function main(): Promise<void> {
+  // Windows ask for the media server's address when they first play something; it starts
+  // further down, once everything it serves from exists.
+  const mediaBase = { url: "" };
+  ipcMain.on("media:base", (e) => (e.returnValue = mediaBase.url));
   const settings = new SettingsStore();
   const modelsDir = () => resolveModelsDir(settings.get().modelsDir);
   const dbKey = settings.get().privacy.encryptDatabase ? getSecret("db-key") : null;
@@ -192,6 +200,12 @@ async function main(): Promise<void> {
     updateTray();
   });
   screenRecorder.on("changed", () => broadcast("meetings:changed"));
+  const video = new VideoService({ videos: new VideoProjectRepo(store.db), clips, meetings, encrypt: () => settings.get().meetings.encryptAudio });
+  video.on("progress", (id: string, p: unknown) => broadcast("video:progress", id, p));
+  meetingService.on("audioDeleted", (m: MeetingRecord) => {
+    video.deleteExports(m);
+    broadcast("video:changed");
+  });
   // Nondh AI's own folder (vd-audio, the dev Electron) never triggers the prompt.
   const selfDir = app.isPackaged ? dirname(process.execPath) : app.getAppPath();
   const detector = new MeetingDetector(process.execPath, () => ({
@@ -264,45 +278,53 @@ async function main(): Promise<void> {
   });
   meetingService.on("error", (msg: string) => broadcast("meeting:progress", meetingService.recording?.id ?? "", `Audio error: ${msg}`));
 
-  // ---- audio playback protocol (decrypts encrypted recordings in memory) ----
-  let mediaCache: { path: string; data: Buffer } | null = null;
-  // vd-audio://<meetingId> → the meeting audio; vd-audio://<meetingId>/<clipId> → a screen clip.
-  protocol.handle("vd-audio", (req) => {
-    const url = new URL(req.url);
-    const m = meetings.get(url.hostname);
-    const clipId = url.pathname.replace(/^\//, "");
-    const clip = clipId ? clips.get(clipId) : null;
-    const file = clipId ? (clip?.meetingId === m?.id ? clip?.file : null) : m?.audioFile;
-    if (!m || !file) return new Response("not found", { status: 404 });
-    try {
-      const path = join(m.dir, file);
-      // Decrypting is the slow part; keep the last file in memory so seeking doesn't redo it.
-      if (mediaCache?.path !== path) mediaCache = { path, data: readAudio(path) };
-      const data = mediaCache.data;
-      const type = clipId ? "video/webm" : "audio/ogg";
-      // Players seek with byte-range requests; answer them so clips and audio can be scrubbed.
-      const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get("range") ?? "");
-      if (range && (range[1] || range[2])) {
-        const start = range[1] ? Number(range[1]) : Math.max(0, data.length - Number(range[2]));
-        const end = range[1] && range[2] ? Math.min(Number(range[2]), data.length - 1) : data.length - 1;
-        if (start >= data.length) return new Response(null, { status: 416, headers: { "content-range": `bytes */${data.length}` } });
-        // A standalone copy: a view into the larger buffer can be served with the wrong bytes.
-        return new Response(new Uint8Array(data.subarray(start, end + 1)), {
-          status: 206,
-          headers: {
-            "content-type": type,
-            "content-range": `bytes ${start}-${end}/${data.length}`,
-            "content-length": String(end - start + 1),
-            "accept-ranges": "bytes",
-          },
-        });
+  // ---- media for the app's players (meeting audio, screen clips, edits, added images) ----
+  // Decrypting is the slow part; keep the last few files in memory so seeking (and the editor
+  // playing a clip with the meeting audio) doesn't redo it.
+  const mediaCache: Array<{ path: string; data: Buffer }> = [];
+  const decrypted = (path: string): Buffer => {
+    // Keyed by modification time too, so a re-exported edit isn't served from the cache.
+    const key = `${path}|${statSync(path).mtimeMs}`;
+    const i = mediaCache.findIndex((c) => c.path === key);
+    const hit = i >= 0 ? mediaCache.splice(i, 1)[0]! : { path: key, data: readAudio(path) };
+    mediaCache.unshift(hit);
+    mediaCache.length = Math.min(mediaCache.length, 3);
+    return hit.data;
+  };
+  const TYPES: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+    mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", opus: "audio/ogg", flac: "audio/flac", wma: "audio/x-ms-wma",
+  };
+  // <base>/<meetingId>             → the meeting audio
+  // <base>/<meetingId>/<clipId>    → a screen clip
+  // <base>/<meetingId>/edit/<id>   → an exported edit
+  // <base>/<meetingId>/asset/<f>   → an image or audio file added to an edit
+  const mediaServer = new MediaServer({
+    decrypt: decrypted,
+    resolve: (meetingId, [first = "", second = ""]) => {
+      const m = meetings.get(meetingId);
+      if (!m) return null;
+      let file: string | null | undefined = null;
+      let type = "audio/ogg";
+      if (!first) file = m.audioFile;
+      else if (first === "edit") {
+        const p = video.get(second)?.project;
+        file = p?.meetingId === m.id ? p.exportFile : null;
+        type = "video/mp4";
+      } else if (first === "asset") {
+        // Only plain file names inside the meeting's asset folder.
+        file = /^[\w-]+\.\w+$/.test(second) ? join("video-assets", second) : null;
+        type = TYPES[second.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
+      } else {
+        const clip = clips.get(first);
+        file = clip?.meetingId === m.id ? clip.file : null;
+        type = "video/webm";
       }
-      return new Response(new Uint8Array(data), { headers: { "content-type": type, "content-length": String(data.length), "accept-ranges": "bytes" } });
-    } catch (err) {
-      log.error("audio read failed", err);
-      return new Response("error", { status: 500 });
-    }
+      return file ? { path: join(m.dir, file), type, encrypted: file.endsWith(".enc") } : null;
+    },
   });
+  mediaBase.url = await mediaServer.start();
+  app.on("will-quit", () => mediaServer.stop());
 
   // ---- IPC ----
   const ctx: AppContext = {
@@ -321,6 +343,7 @@ async function main(): Promise<void> {
     assistant,
     screenRecorder,
     clips,
+    video,
     dictation,
     broadcast,
     startMeeting,

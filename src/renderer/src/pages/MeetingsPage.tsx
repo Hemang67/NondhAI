@@ -4,7 +4,7 @@ import type { ExportFormat, MeetingDetail } from "@shared/ipc";
 import type { TranscriptLine } from "@shared/meeting/types";
 import { Badge, Button, cx, Input } from "../components/ui";
 import { Markdown } from "../components/Markdown";
-import { clock, fmtDuration, speakerColor, useNav } from "../nav";
+import { clock, CLIP_KIND, fmtDuration, mediaUrl, speakerColor, useNav } from "../nav";
 
 const STATUS: Record<MeetingRecord["status"], { label: string; tone: "neutral" | "accent" | "cloud" }> = {
   recording: { label: "recording", tone: "cloud" },
@@ -195,7 +195,7 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
       )}
 
       {m.audioFile && (
-        <audio ref={audio} controls preload="metadata" src={`vd-audio://${id}`} className="mt-4 w-full" aria-label="Meeting recording" />
+        <audio ref={audio} controls preload="metadata" src={mediaUrl(id)} className="mt-4 w-full" aria-label="Meeting recording" />
       )}
 
       {d.clips.length > 0 && <ScreenClips meetingId={id} clips={d.clips} audio={audio} />}
@@ -476,7 +476,6 @@ function AskBox({ meetingId }: { meetingId: string | null }) {
   );
 }
 
-const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region" } as const;
 
 /**
  * Screen recordings made during the meeting. Playing a clip also plays the meeting audio from
@@ -485,8 +484,13 @@ const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region" 
 function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: ClipRecord[]; audio: React.RefObject<HTMLAudioElement | null> }) {
   const [open, setOpen] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
-  // Served by the app's vd-audio:// handler, which supports byte ranges for seeking.
-  const src = open ? `vd-audio://${meetingId}/${open}` : undefined;
+  const nav = useNav();
+  const edit = async (clipId: string) => {
+    const p = await window.vd.invoke("video:create", meetingId, [clipId]);
+    nav({ tab: "library", projectId: p.id });
+  };
+  // Served by the app's local media server, which supports byte ranges for seeking.
+  const src = open ? mediaUrl(meetingId, open) : undefined;
 
   const clip = clips.find((c) => c.id === open);
   const sync = () => {
@@ -500,7 +504,12 @@ function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: Cl
 
   return (
     <section className="mt-4 rounded-lg border border-line p-3">
-      <h3 className="mb-2 text-sm font-semibold">Screen recordings</h3>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Screen recordings</h3>
+        <Button variant="ghost" className="h-7 px-2" onClick={() => nav({ tab: "library" })}>
+          {clips.filter((c) => c.file).length > 1 ? "Edit or merge in Video library" : "Open Video library"}
+        </Button>
+      </div>
       <ul className="space-y-1.5">
         {clips.map((c) => (
           <li key={c.id} className="flex items-center gap-2 text-sm">
@@ -512,6 +521,11 @@ function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: Cl
             <Badge>{CLIP_KIND[c.kind]}</Badge>
             <span className="tabular-nums text-xs text-fg-muted">{c.endMs !== null ? clock(c.endMs - c.startMs) : "–"}</span>
             {!c.file && <span className="text-xs text-fg-muted">deleted</span>}
+            {c.file && c.endMs !== null && (
+              <Button variant="ghost" className="h-7 px-2" onClick={() => void edit(c.id)}>
+                Edit
+              </Button>
+            )}
             <Button
               variant="ghost"
               className="h-7 px-2"

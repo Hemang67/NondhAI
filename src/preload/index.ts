@@ -21,4 +21,8 @@ contextBridge.exposeInMainWorld("vd", {
     return () => ipcRenderer.removeListener(channel, fn);
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
+  mediaBase: (() => {
+    let base = "";
+    return () => (base ||= ipcRenderer.sendSync("media:base") as string);
+  })(),
 });
