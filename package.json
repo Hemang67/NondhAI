@@ -1,12 +1,14 @@
 {
   "name": "nondh-ai",
   "productName": "Nondh AI",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Nondh AI — Darek vaat ni nondh. Offline-first dictation, meeting notes and screen recording for Windows",
   "main": "out/main/index.js",
   "private": true,
   "license": "MIT",
-  "author": "Hemang Rathod",
+  "author": {
+    "name": "Hemang Rathod"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

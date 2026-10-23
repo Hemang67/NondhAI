@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LlmProvider, LlmTarget, Settings } from "@shared/settings";
-import { APP_NAME, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
+import { APP_NAME, DEVELOPER, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { Badge, Button, Card, Input, Row, Select, Switch } from "../components/ui";
 
 const LLM_PROVIDERS: Array<[LlmProvider, string]> = [
@@ -209,8 +209,15 @@ export function SettingsPage() {
             <div className="text-xs text-fg-muted">“{TAGLINE_MEANING}”</div>
           </div>
         </div>
+        <div className="mt-4 border-t border-line pt-3">
+          <div className="text-xs uppercase tracking-wide text-fg-muted">Developed by</div>
+          <div className="mt-0.5 text-sm font-semibold">{DEVELOPER.name}</div>
+          <div className="text-xs text-accent">{DEVELOPER.role}</div>
+          <div className="mt-1 text-xs">{DEVELOPER.motto}</div>
+          <div className="text-xs text-fg-muted">{DEVELOPER.line}</div>
+        </div>
         <p className="mt-3 text-xs text-fg-muted">
-          Version {info?.version} · everything is stored on this computer, in {info?.userData}
+          Version {info?.version} · © 2026 {DEVELOPER.name} · everything is stored on this computer, in {info?.userData}
         </p>
       </Card>
     </div>

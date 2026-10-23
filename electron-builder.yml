@@ -36,6 +36,8 @@ win:
       arch: [x64]
   icon: resources/icon.ico
   executableName: NondhAI
+  # Shown in the file's Properties → Details and as the publisher in Apps.
+  legalTrademarks: Nondh AI by Hemang Rathod, Full Stack Developer
 nsis:
   oneClick: false
   perMachine: false

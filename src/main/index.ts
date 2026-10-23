@@ -107,7 +107,8 @@ function broadcast(channel: string, ...args: unknown[]): void {
 }
 
 function applyLoginItem(enabled: boolean): void {
-  if (!app.isPackaged) return; // a dev build would register electron.exe
+  // A dev build would register electron.exe; a test run (separate profile) must not touch the real entry.
+  if (!app.isPackaged || process.env.NONDH_USER_DATA) return;
   app.setLoginItemSettings({ openAtLogin: enabled, args: [HIDDEN_FLAG] });
 }
 
