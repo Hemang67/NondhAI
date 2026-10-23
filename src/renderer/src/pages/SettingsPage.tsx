@@ -400,7 +400,7 @@ function UpdatesCard({ s, update }: { s: Settings; update: (p: unknown) => Promi
   };
   return (
     <Card title="Updates" description="Point Nondh AI at a folder or web address where you put new builds (latest.yml + the installer). Updates download in the background and install on restart.">
-      <Row label="Update source" hint="e.g. D:\NondhAI-releases or https://example.com/nondh-ai">
+      <Row label="Update source" hint="e.g. D:\Nondh AI-releases or https://example.com/nondh-ai">
         <Input defaultValue={s.updates.feedUrl} onBlur={(e) => void update({ updates: { feedUrl: e.target.value.trim() } })} />
       </Row>
       <div className="flex items-center gap-2 pt-2 text-sm">

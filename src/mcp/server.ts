@@ -5,7 +5,7 @@
  * directly and encryption at rest keeps working.
  *
  * Run with the app's own executable as Node:
- *   ELECTRON_RUN_AS_NODE=1 "<NondhAI.exe>" "<resources>\app.asar\out\main\mcp.js"
+ *   ELECTRON_RUN_AS_NODE=1 "<Nondh AI.exe>" "<resources>\app.asar\out\main\mcp.js"
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

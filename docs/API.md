@@ -28,7 +28,7 @@ Invoke-RestMethod -Headers @{ Authorization = "Bearer $t" } "http://127.0.0.1:47
 The MCP server uses this API, so keep the API on. Copy the exact command from **Settings → Integrations → MCP server**. For a default install it looks like this:
 
 ```
-claude mcp add nondh -e ELECTRON_RUN_AS_NODE=1 -- "%LOCALAPPDATA%\Programs\Nondh AI\NondhAI.exe" "%LOCALAPPDATA%\Programs\Nondh AI\resources\app.asar\out\main\mcp.js"
+claude mcp add nondh -e ELECTRON_RUN_AS_NODE=1 -- "%LOCALAPPDATA%\Programs\Nondh AI\Nondh AI.exe" "%LOCALAPPDATA%\Programs\Nondh AI\resources\app.asar\out\main\mcp.js"
 ```
 
 Tools: `search`, `list_meetings`, `get_meeting`, `list_notes`, `get_note`, `recent_dictations`, `ask_meetings`. All are read-only.

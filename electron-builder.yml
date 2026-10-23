@@ -35,7 +35,8 @@ win:
     - target: nsis
       arch: [x64]
   icon: resources/icon.ico
-  executableName: NondhAI
+  # Also names the install folder (Programs\Nondh AI), so it matches the app name.
+  executableName: Nondh AI
   # Shown in the file's Properties → Details and as the publisher in Apps.
   legalTrademarks: Nondh AI by Hemang Rathod, Full Stack Developer
 nsis:

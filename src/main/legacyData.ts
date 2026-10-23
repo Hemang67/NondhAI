@@ -2,7 +2,10 @@ import { app } from "electron";
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
+import type { ProjectSpec } from "@shared/video/project";
+import { legacyRoots, swapRoot } from "@shared/legacyPaths";
 import type { SettingsStore } from "./settingsStore";
+import { log } from "./log";
 
 /**
  * The app used to be called Nondh AI and kept its data in %APPDATA%\Nondh AI. On the first
@@ -31,19 +34,64 @@ if (!process.env.NONDH_USER_DATA) {
   }
 }
 
-const under = (p: string, dir: string) => p.toLowerCase().startsWith(dir.toLowerCase() + "\\") || p.toLowerCase() === dir.toLowerCase();
+type Move = { from: string; to: string };
 
-/** Points stored paths that still lead into the old folder at the new one. Safe to run on every start. */
-export function fixLegacyPaths(db: Database.Database, settings: SettingsStore): void {
+/**
+ * Folders the user picked for models and recordings that are named after the old app name
+ * ("D:\Nondh AI-data") are renamed in place to the new name ("D:\Nondh AI-data"), and the
+ * settings follow. Runs before anything opens those folders. Returns the moves made (or found
+ * already made), for the stored paths that also need updating.
+ */
+export function renameLegacyFolders(settings: SettingsStore): Move[] {
+  const s = settings.get();
+  const done: Move[] = [];
+  for (const m of legacyRoots([s.modelsDir, s.meetings.dir])) {
+    if (existsSync(m.from) && !existsSync(m.to)) {
+      try {
+        renameSync(m.from, m.to);
+        log.info("renamed data folder", m);
+      } catch (err) {
+        log.error(`couldn't rename ${m.from}; still using it`, err);
+        continue;
+      }
+    }
+    if (existsSync(m.to) && !existsSync(m.from)) done.push(m);
+  }
+  if (done.length) {
+    const swap = (p: string) => done.reduce((acc, m) => swapRoot(acc, m.from, m.to), p);
+    settings.update({ modelsDir: swap(s.modelsDir), meetings: { ...s.meetings, dir: swap(s.meetings.dir) } });
+  }
+  return done;
+}
+
+/**
+ * Points stored paths that still lead into an old folder at its new place: meeting folders, and
+ * images and music added to video edits. Safe to run on every start.
+ */
+export function fixLegacyPaths(db: Database.Database, settings: SettingsStore, moved: Move[]): void {
+  const moves: Move[] = [...moved];
   const dest = app.getPath("userData");
-  if (dest.toLowerCase() === LEGACY_DATA_DIR.toLowerCase()) return;
-  const rows = db.prepare(`SELECT id, dir FROM meetings`).all() as Array<{ id: string; dir: string }>;
-  const update = db.prepare(`UPDATE meetings SET dir = ? WHERE id = ?`);
-  for (const r of rows) if (under(r.dir, LEGACY_DATA_DIR)) update.run(dest + r.dir.slice(LEGACY_DATA_DIR.length), r.id);
+  if (dest.toLowerCase() !== LEGACY_DATA_DIR.toLowerCase()) moves.push({ from: LEGACY_DATA_DIR, to: dest });
+  const swap = (p: string) => moves.reduce((acc, m) => swapRoot(acc, m.from, m.to), p);
+
+  db.transaction(() => {
+    const update = db.prepare(`UPDATE meetings SET dir = ? WHERE id = ?`);
+    for (const r of db.prepare(`SELECT id, dir FROM meetings`).all() as Array<{ id: string; dir: string }>) {
+      const next = swap(r.dir);
+      if (next !== r.dir) update.run(next, r.id);
+    }
+    const save = db.prepare(`UPDATE video_projects SET spec_json = ? WHERE id = ?`);
+    for (const r of db.prepare(`SELECT id, spec_json FROM video_projects`).all() as Array<{ id: string; spec_json: string }>) {
+      const spec = JSON.parse(r.spec_json) as ProjectSpec;
+      const images = spec.images.map((i) => ({ ...i, file: swap(i.file) }));
+      const audioTracks = spec.audioTracks.map((a) => ({ ...a, file: swap(a.file) }));
+      const changed = images.some((i, k) => i.file !== spec.images[k]!.file) || audioTracks.some((a, k) => a.file !== spec.audioTracks[k]!.file);
+      if (changed) save.run(JSON.stringify({ ...spec, images, audioTracks }), r.id);
+    }
+  })();
 
   const s = settings.get();
-  const move = (p: string) => (p && under(p, LEGACY_DATA_DIR) ? dest + p.slice(LEGACY_DATA_DIR.length) : p);
-  if (move(s.modelsDir) !== s.modelsDir || move(s.meetings.dir) !== s.meetings.dir) {
-    settings.update({ modelsDir: move(s.modelsDir), meetings: { ...s.meetings, dir: move(s.meetings.dir) } });
+  if (swap(s.modelsDir) !== s.modelsDir || swap(s.meetings.dir) !== s.meetings.dir) {
+    settings.update({ modelsDir: swap(s.modelsDir), meetings: { ...s.meetings, dir: swap(s.meetings.dir) } });
   }
 }
