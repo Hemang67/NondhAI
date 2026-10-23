@@ -10,4 +10,5 @@ export const DEVELOPER = {
   role: "Full Stack Developer",
   motto: "Code. Build. Deploy. Repeat.",
   line: "Turning ideas into impact through technology.",
+  url: "https://hemang-rathod.vercel.app/",
 };

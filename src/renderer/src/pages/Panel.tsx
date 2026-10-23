@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Settings } from "@shared/settings";
 import type { RecordingState } from "@shared/ipc";
 import { APP_NAME, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { cx, Input } from "../components/ui";
@@ -78,13 +79,7 @@ export function Panel() {
               {t.label}
             </button>
           ))}
-          <div className="mt-auto space-y-1 px-2 text-xs leading-relaxed text-fg-muted">
-            <p>
-              <kbd className="rounded border border-line px-1">Ctrl</kbd>+<kbd className="rounded border border-line px-1">Win</kbd> dictate
-            </p>
-            <p>…+<kbd className="rounded border border-line px-1">T</kbd> translate · +<kbd className="rounded border border-line px-1">A</kbd> assistant</p>
-            <p>…+<kbd className="rounded border border-line px-1">M</kbd> record meeting</p>
-          </div>
+          <Shortcuts refreshKey={nav.tab} />
         </nav>
         <main className="min-w-0 flex-1 overflow-hidden">
           {nav.tab === "meetings" && <MeetingsPage key={nav.meetingId ?? "list"} initialId={nav.meetingId} at={nav.at} />}
@@ -105,5 +100,49 @@ export function Panel() {
         </main>
       </div>
     </NavContext.Provider>
+  );
+}
+
+const KEY_LABELS: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", win: "Win", alt: "Alt", shift: "Shift", space: "Space" };
+
+/** "ctrl+win+t" → ["Ctrl", "Win", "T"] */
+const keysOf = (combo: string) => combo.split("+").filter(Boolean).map((k) => KEY_LABELS[k] ?? k.toUpperCase());
+
+/** The global shortcuts, as currently set in Settings → Hotkeys. */
+function Shortcuts({ refreshKey }: { refreshKey: string }) {
+  const [hotkeys, setHotkeys] = useState<Settings["hotkeys"] | null>(null);
+  useEffect(() => {
+    void window.vd.invoke("settings:get").then((s) => setHotkeys(s.hotkeys));
+  }, [refreshKey]);
+  if (!hotkeys) return null;
+  const rows: Array<[string, string, string?]> = [
+    ["Dictate", hotkeys.dictate, "Hold to talk, or double-tap to keep it on"],
+    ["Translate", hotkeys.translate],
+    ["Assistant", hotkeys.assistant],
+    ["Meeting", hotkeys.meeting, "Start or stop recording a meeting"],
+  ];
+  return (
+    <section className="mt-auto rounded-lg border border-line bg-muted/40 p-2.5" aria-labelledby="shortcuts-title">
+      <h2 id="shortcuts-title" className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+        Shortcuts
+      </h2>
+      <dl className="space-y-1.5">
+        {rows.map(([label, combo, hint]) => (
+          <div key={label} className="flex items-center justify-between gap-2" title={hint}>
+            <dt className="whitespace-nowrap text-xs text-fg-muted">{label}</dt>
+            <dd className="flex shrink-0 gap-0.5">
+              {keysOf(combo).map((k, i) => (
+                <kbd
+                  key={i}
+                  className="min-w-[1.375rem] rounded border border-line border-b-2 bg-panel px-1 text-center font-sans text-[10px] font-medium leading-4 text-fg"
+                >
+                  {k}
+                </kbd>
+              ))}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

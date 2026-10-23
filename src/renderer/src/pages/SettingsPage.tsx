@@ -215,6 +215,14 @@ export function SettingsPage() {
           <div className="text-xs text-accent">{DEVELOPER.role}</div>
           <div className="mt-1 text-xs">{DEVELOPER.motto}</div>
           <div className="text-xs text-fg-muted">{DEVELOPER.line}</div>
+          <a
+            href={DEVELOPER.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+          >
+            {DEVELOPER.url.replace(/^https:\/\//, "").replace(/\/$/, "")} <span aria-hidden="true">↗</span>
+          </a>
         </div>
         <p className="mt-3 text-xs text-fg-muted">
           Version {info?.version} · © 2026 {DEVELOPER.name} · everything is stored on this computer, in {info?.userData}
