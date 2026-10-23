@@ -8,6 +8,7 @@ import { pasteText } from "../paste";
 import { log } from "../log";
 
 const VISION_PROVIDERS = new Set(["anthropic", "openai", "gemini", "openrouter"]);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Voice assistant: after the spoken command is transcribed —
@@ -45,12 +46,20 @@ export class AssistantService {
     const before = await clipboard.readText();
     const marker = `vd-selection-${Date.now()}`;
     await clipboard.writeText(marker);
+    // The async clipboard API can resolve before the OS clipboard holds the marker; make sure it
+    // does, or the marker could land after the app's copy and hide the selection.
+    for (let i = 0; i < 20 && (await clipboard.readText()) !== marker; i++) await sleep(10);
     const r = await this.d.input.copy();
-    await new Promise((res) => setTimeout(res, 180));
-    const after = await clipboard.readText();
+    // Apps update the clipboard asynchronously after Ctrl+C: poll briefly for the change.
+    let after = marker;
+    for (let i = 0; i < 16 && r === "ok" && after === marker; i++) {
+      await sleep(50);
+      after = await clipboard.readText();
+    }
     await clipboard.writeText(before);
-    if (r !== "ok" || after === marker || !after.trim()) return null;
-    return after;
+    const selected = r === "ok" && after !== marker && !!after.trim();
+    log.info(`assistant selection: copy=${r} ${selected ? `${after.length} chars` : "none"} in ${target?.appName ?? "?"}`);
+    return selected ? after : null;
   }
 
   private async screenshot(): Promise<string | null> {

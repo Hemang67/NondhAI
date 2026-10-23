@@ -45,7 +45,9 @@ export function NotesPage({ initialId }: { initialId?: string }) {
         <FolderButton active={folder === null} onClick={() => setFolder(null)} label="No folder" />
         {folders.map((f) => (
           <div key={f.id} className="group flex items-center">
-            <FolderButton active={folder === f.id} onClick={() => setFolder(f.id)} label={f.name} />
+            <div className="min-w-0 flex-1">
+              <FolderButton active={folder === f.id} onClick={() => setFolder(f.id)} label={f.name} />
+            </div>
             <button
               className="hidden px-1 text-xs text-fg-muted group-hover:block"
               title="Rename folder"
@@ -106,7 +108,7 @@ export function NotesPage({ initialId }: { initialId?: string }) {
 
 function FolderButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
-    <button onClick={onClick} className={cx("min-w-0 flex-1 truncate rounded-md px-2.5 py-1.5 text-left text-sm", active ? "bg-muted font-medium" : "text-fg-muted hover:bg-muted")}>
+    <button onClick={onClick} className={cx("w-full min-w-0 truncate rounded-md px-2.5 py-1.5 text-left text-sm", active ? "bg-muted font-medium" : "text-fg-muted hover:bg-muted")}>
       {label}
     </button>
   );

@@ -1,0 +1,14 @@
+2026-10-23T07:50:39.883Z INFO search index: embedded 3 items
+2026-10-23T07:50:57.259Z INFO chord down assistant state=pressing
+2026-10-23T07:52:12.835Z INFO chord down assistant state=pressing
+2026-10-23T07:53:16.625Z INFO search index: embedded 2 items
+2026-10-23T07:53:18.241Z INFO chord down assistant state=pressing
+2026-10-23T07:53:21.401Z INFO assistant selection: copy=ok none in chrome
+2026-10-23T07:54:29.039Z INFO chord down assistant state=pressing
+2026-10-23T07:54:32.193Z INFO assistant selection: copy=ok none in chrome
+2026-10-23T07:55:36.154Z INFO search index: embedded 2 items
+2026-10-23T07:55:40.563Z INFO chord down assistant state=pressing
+2026-10-23T07:55:44.516Z INFO assistant selection: copy=ok none in chrome
+2026-10-23T07:56:15.366Z INFO chord down assistant state=pressing
+2026-10-23T07:56:18.380Z INFO assistant selection: copy=ok 71 chars in chrome
+2026-10-23T07:56:20.756Z INFO assistant edited 71 chars in chrome (cloud=false)
