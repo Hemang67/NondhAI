@@ -7,7 +7,7 @@
 // Builds the installer (npm run dist), tags v<version>, pushes the commit and tag, and creates the
 // release with NondhAI-Setup-<version>.exe (+ latest.yml and the blockmap, for auto-updates).
 // Needs the GitHub CLI (gh), signed in. Refuses to run with uncommitted changes or an existing tag.
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,7 @@ const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
 const tag = `v${version}`;
 const gh = process.env.GH ?? (existsSync("C:\\Program Files\\GitHub CLI\\gh.exe") ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "gh");
 
-const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: root, stdio: "inherit", shell: cmd === "npm", ...opts });
+const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: "inherit" });
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
 const fail = (msg) => {
   console.error(`\n✗ ${msg}`);
@@ -33,7 +33,7 @@ try {
 }
 
 console.log(`\n▸ Building Nondh AI ${version}…`);
-run("npm", ["run", "dist"]);
+execSync("npm run dist", { cwd: root, stdio: "inherit" });
 
 const files = [`NondhAI-Setup-${version}.exe`, `NondhAI-Setup-${version}.exe.blockmap`, "latest.yml"].map((f) => join(root, "release", f));
 for (const f of files) if (!existsSync(f)) fail(`Missing build output: ${f}`);
