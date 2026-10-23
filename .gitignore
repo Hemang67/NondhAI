@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+release/
+reference/
+resources/bin/
+native/**/build/
+*.log
+.env
+.DS_Store
+docs/evidence/**/*.wav
+docs/evidence/**/*.opus
