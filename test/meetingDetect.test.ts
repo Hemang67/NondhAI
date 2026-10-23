@@ -37,6 +37,19 @@ describe("classifyMicUser", () => {
     expect(classifyMicUser(chrome, ["Meet - abc-defg-hij - Google Chrome"])).toBe("Google Meet");
   });
 
+  it("with anyApp, prompts for any app or browser using the mic", () => {
+    const any = { anyApp: true };
+    expect(classifyMicUser("C:#Program Files#Google#Chrome#Application#chrome.exe", ["Inbox - Gmail"], "", any)).toBe("Chrome (browser)");
+    expect(classifyMicUser("C:#Program Files#Google#Chrome#Application#chrome.exe", ["Meet - abc - Google Chrome"], "", any)).toBe("Google Meet");
+    expect(classifyMicUser("C:#Tools#GoTo#g2mcomm.exe", [], "", any)).toBe("G2mcomm");
+    expect(classifyMicUser("Contoso.MeetApp_8wekyb3d8bbwe", [], "", any)).toBe("MeetApp");
+  });
+
+  it("never prompts for Nondh AI's own helpers", () => {
+    const opts = { anyApp: true, ignorePaths: ["C:\\Program Files\\Nondh AI\\"] };
+    expect(classifyMicUser("C:#Program Files#Nondh AI#resources#bin#vd-audio.exe", [], "", opts)).toBeNull();
+  });
+
   it("ignores Nondh AI itself and unrelated apps", () => {
     expect(classifyMicUser("C:#Program Files#Nondh AI#Nondh AI.exe", [], "C:\\Program Files\\Nondh AI\\Nondh AI.exe")).toBeNull();
     expect(classifyMicUser("C:#Tools#Audacity#audacity.exe")).toBeNull();

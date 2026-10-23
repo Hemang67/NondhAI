@@ -52,16 +52,49 @@ const BROWSER_TITLES: Array<[RegExp, string]> = [
   [/Slack.*huddle|huddle.*Slack/i, "Slack huddle"],
 ];
 
-/**
- * Name the meeting app behind a mic user, or null if it isn't one. Browsers count only when one
- * of their window titles shows a meeting site.
- */
-export function classifyMicUser(key: string, browserTitles: string[] = [], selfExe = ""): string | null {
+const BROWSER_NAMES: Record<string, string> = {
+  chrome: "Chrome",
+  msedge: "Edge",
+  firefox: "Firefox",
+  brave: "Brave",
+  opera: "Opera",
+  vivaldi: "Vivaldi",
+  arc: "Arc",
+};
+
+/** Readable name for any mic user: "Zoom.exe" → "Zoom", "Contoso.MeetApp_8wekyb…" → "MeetApp". */
+export function friendlyAppName(key: string): string {
   const path = key.replace(/#/g, "\\");
-  if (selfExe && path.toLowerCase() === selfExe.toLowerCase()) return null;
-  for (const [re, name] of NATIVE_APPS) if (re.test(path)) return name;
-  if (BROWSERS.test(path)) {
-    for (const t of browserTitles) for (const [re, name] of BROWSER_TITLES) if (re.test(t)) return name;
+  if (path.includes("\\")) {
+    const exe = path.split("\\").pop()!.replace(/\.exe$/i, "");
+    return exe.charAt(0).toUpperCase() + exe.slice(1);
   }
-  return null;
+  const pkg = path.split("_")[0]!; // packaged (Store) app: family name before the publisher hash
+  return pkg.split(".").pop() || pkg;
+}
+
+/**
+ * Name the meeting behind a mic user, or null if it shouldn't prompt.
+ *  - known meeting apps → their name;
+ *  - browsers → the meeting site from a window title, else the browser name ("anyApp" only);
+ *  - any other app → its name ("anyApp" only).
+ * Nondh AI's own processes never count.
+ */
+export function classifyMicUser(
+  key: string,
+  browserTitles: string[] = [],
+  selfExe = "",
+  opts: { anyApp?: boolean; ignorePaths?: string[] } = {},
+): string | null {
+  const path = key.replace(/#/g, "\\");
+  const lower = path.toLowerCase();
+  if (selfExe && lower === selfExe.toLowerCase()) return null;
+  if (opts.ignorePaths?.some((p) => lower.startsWith(p.toLowerCase()))) return null;
+  for (const [re, name] of NATIVE_APPS) if (re.test(path)) return name;
+  const browser = path.match(BROWSERS);
+  if (browser) {
+    for (const t of browserTitles) for (const [re, name] of BROWSER_TITLES) if (re.test(t)) return name;
+    return opts.anyApp ? `${BROWSER_NAMES[browser[1]!.toLowerCase()] ?? "Browser"} (browser)` : null;
+  }
+  return opts.anyApp ? friendlyAppName(key) : null;
 }

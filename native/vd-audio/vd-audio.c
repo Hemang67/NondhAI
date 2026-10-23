@@ -16,6 +16,7 @@
 #include <initguid.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <audiopolicy.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -222,8 +223,67 @@ static int aecFile(const char *micPath, const char *refPath, const char *outPath
   return 0;
 }
 
+// --sessions: print one line per process that has an *active* microphone stream right now,
+// "<pid>\t<exe path>", across every capture device. Used for meeting detection: Windows' own
+// privacy registry misses many apps, the audio engine's session list does not.
+DEFINE_GUID(VD_IID_IAudioSessionManager2, 0x77AA99A0, 0x1BD6, 0x484F, 0x8B, 0xC7, 0x2C, 0x65, 0x4C, 0x9A, 0x9B, 0x6F);
+DEFINE_GUID(VD_IID_IAudioSessionControl2, 0xBFB7FF88, 0x7239, 0x4FC9, 0x8F, 0xA2, 0x07, 0xC9, 0x50, 0xBE, 0x9C, 0x6D);
+
+static int listSessions(void) {
+  IMMDeviceCollection *devs = NULL;
+  if (FAILED(IMMDeviceEnumerator_EnumAudioEndpoints(g_enum, eCapture, DEVICE_STATE_ACTIVE, &devs))) return 1;
+  UINT count = 0;
+  IMMDeviceCollection_GetCount(devs, &count);
+  for (UINT d = 0; d < count; d++) {
+    IMMDevice *dev = NULL;
+    if (FAILED(IMMDeviceCollection_Item(devs, d, &dev))) continue;
+    IAudioSessionManager2 *mgr = NULL;
+    if (SUCCEEDED(IMMDevice_Activate(dev, &VD_IID_IAudioSessionManager2, CLSCTX_ALL, NULL, (void **)&mgr))) {
+      IAudioSessionEnumerator *en = NULL;
+      if (SUCCEEDED(IAudioSessionManager2_GetSessionEnumerator(mgr, &en))) {
+        int n = 0;
+        IAudioSessionEnumerator_GetCount(en, &n);
+        for (int i = 0; i < n; i++) {
+          IAudioSessionControl *ctl = NULL;
+          if (FAILED(IAudioSessionEnumerator_GetSession(en, i, &ctl))) continue;
+          AudioSessionState st;
+          IAudioSessionControl2 *ctl2 = NULL;
+          if (SUCCEEDED(IAudioSessionControl_GetState(ctl, &st)) && st == AudioSessionStateActive &&
+              SUCCEEDED(IAudioSessionControl_QueryInterface(ctl, &VD_IID_IAudioSessionControl2, (void **)&ctl2))) {
+            DWORD pid = 0;
+            IAudioSessionControl2_GetProcessId(ctl2, &pid);
+            WCHAR path[MAX_PATH] = L"";
+            HANDLE p = pid ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) : NULL;
+            if (p) {
+              DWORD len = MAX_PATH;
+              QueryFullProcessImageNameW(p, 0, path, &len);
+              CloseHandle(p);
+            }
+            char p8[MAX_PATH * 3];
+            WideCharToMultiByte(CP_UTF8, 0, path, -1, p8, sizeof p8, NULL, NULL);
+            if (pid) printf("%lu\t%s\n", (unsigned long)pid, p8);
+            IAudioSessionControl2_Release(ctl2);
+          }
+          IAudioSessionControl_Release(ctl);
+        }
+        IAudioSessionEnumerator_Release(en);
+      }
+      IAudioSessionManager2_Release(mgr);
+    }
+    IMMDevice_Release(dev);
+  }
+  IMMDeviceCollection_Release(devs);
+  fflush(stdout);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc == 5 && !strcmp(argv[1], "--aec-file")) return aecFile(argv[2], argv[3], argv[4]);
+  if (argc == 2 && !strcmp(argv[1], "--sessions")) {
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if (FAILED(CoCreateInstance(&VD_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &VD_IID_IMMDeviceEnumerator, (void **)&g_enum))) return 1;
+    return listSessions();
+  }
   int loopback = 1, aec = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--no-loopback")) loopback = 0;

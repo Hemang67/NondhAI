@@ -42,6 +42,8 @@ export interface Settings {
     dir: string;
     /** Detect Zoom/Teams/Meet/... calls and offer to record. */
     autoDetect: boolean;
+    /** Prompt for any app or browser using the mic, not only known meeting apps. */
+    detectAnyApp: boolean;
     /** Echo cancellation on the mic track (for speakers; harmless on headphones). */
     aec: boolean;
     /** Delete recorded audio after this many days; 0 keeps it forever. Transcripts are kept. */
@@ -90,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   meetings: {
     dir: "",
     autoDetect: true,
+    detectAnyApp: true,
     aec: true,
     keepAudioDays: 0,
     encryptAudio: false,

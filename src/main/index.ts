@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, Tray } from "electron";
 import { Updater } from "./updater";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import type { PillState } from "@shared/types";
 import { buildCleanupMessages } from "@shared/cleanup/llmCleanup";
@@ -177,7 +177,12 @@ async function main(): Promise<void> {
   });
 
   const meetingService = new MeetingService({ settings: () => settings.get(), speech, meetings, people, llm, llmAvailable });
-  const detector = new MeetingDetector(process.execPath);
+  // Nondh AI's own folder (vd-audio, the dev Electron) never triggers the prompt.
+  const selfDir = app.isPackaged ? dirname(process.execPath) : app.getAppPath();
+  const detector = new MeetingDetector(process.execPath, () => ({
+    anyApp: settings.get().meetings.detectAnyApp,
+    ignorePaths: [join(selfDir, "/")],
+  }));
 
   // ---- meeting windows and indicator ----
   const showToast = (info: { kind: "detected" | "ended"; app: string }) => {

@@ -155,18 +155,24 @@ export function Toast() {
   }, [info]);
   if (!info) return null;
   return (
-    <div className="flex h-screen items-end p-2">
-      <div className="w-full rounded-lg border border-white/10 bg-neutral-900/95 p-4 text-sm text-neutral-100 shadow-xl" role="alertdialog" aria-label="Meeting">
-        <p className="font-semibold">{info.kind === "detected" ? `${info.app} call detected` : `${info.app} call ended`}</p>
-        <p className="mt-1 text-xs text-neutral-400">
-          {info.kind === "detected" ? "Record and transcribe it? A recording indicator stays visible while it runs." : "Stop the recording?"}
+    <div className="flex h-screen items-start p-2">
+      <div className="w-full rounded-lg border border-white/10 bg-neutral-900 p-4 text-sm text-neutral-100 shadow-xl" role="alertdialog" aria-label="Meeting">
+        <div className="flex items-center gap-2">
+          <span className={`size-2.5 rounded-full ${info.kind === "detected" ? "animate-pulse bg-sky-400" : "bg-neutral-500"}`} aria-hidden />
+          <p className="font-semibold">{info.kind === "detected" ? "Meeting detected" : "Meeting ended"}</p>
+          <span className="ml-auto truncate text-xs text-neutral-400">{info.app}</span>
+        </div>
+        <p className="mt-1.5 text-xs text-neutral-400">
+          {info.kind === "detected"
+            ? `${info.app} is using your microphone. Capture and transcribe this meeting? A REC indicator stays visible while it runs.`
+            : `${info.app} stopped using the microphone. Stop capturing?`}
         </p>
         <div className="mt-3 flex gap-2">
           <Button variant="primary" onClick={() => void window.vd.invoke("toast:respond", info.kind === "detected" ? "record" : "stop")}>
-            {info.kind === "detected" ? "Record" : "Stop recording"}
+            {info.kind === "detected" ? "Start Capturing" : "Stop Capturing"}
           </Button>
           <Button variant="ghost" className="text-neutral-200" onClick={() => void window.vd.invoke("toast:respond", "dismiss")}>
-            {info.kind === "detected" ? "Not now" : "Keep recording"}
+            {info.kind === "detected" ? "Not now" : "Keep capturing"}
           </Button>
         </div>
       </div>

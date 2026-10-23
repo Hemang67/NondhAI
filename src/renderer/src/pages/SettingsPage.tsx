@@ -97,6 +97,11 @@ export function SettingsPage() {
         <Row label="Detect calls and offer to record" hint="Zoom, Teams, Google Meet, Webex, Slack huddles, Discord. Nothing records without your click.">
           <Switch label="Detect calls" checked={s.meetings.autoDetect} onChange={(v) => void update({ meetings: { autoDetect: v } })} />
         </Row>
+        {s.meetings.autoDetect && (
+          <Row label="Detect any app" hint="On: any app or browser that starts using the microphone shows “Start Capturing”. Off: only known meeting apps.">
+            <Switch label="Detect any app" checked={s.meetings.detectAnyApp} onChange={(v) => void update({ meetings: { detectAnyApp: v } })} />
+          </Row>
+        )}
         <Row label="Echo cancellation" hint="Removes the other side's voice from your mic when you're on speakers. Text-level duplicate removal always runs.">
           <Switch label="Echo cancellation" checked={s.meetings.aec} onChange={(v) => void update({ meetings: { aec: v } })} />
         </Row>

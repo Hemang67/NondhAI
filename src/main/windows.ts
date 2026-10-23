@@ -132,14 +132,14 @@ export function createRecIndicator(): BrowserWindow {
   return win;
 }
 
-/** "Meeting detected — record?" prompt in the corner. */
+/** "Meeting detected — Start Capturing" prompt in the top-right corner. */
 export function createToastWindow(): BrowserWindow {
   const { workArea } = screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 360,
-    height: 150,
-    x: workArea.x + workArea.width - 376,
-    y: workArea.y + workArea.height - 166,
+    width: 380,
+    height: 160,
+    x: workArea.x + workArea.width - 396,
+    y: workArea.y + 16,
     frame: false,
     transparent: true,
     resizable: false,
