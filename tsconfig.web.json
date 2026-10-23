@@ -1,5 +1,27 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "composite": true, "jsx": "react-jsx", "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": [] },
-  "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/api.d.ts"]
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "paths": {
+      "@shared/*": [
+        "./src/shared/*"
+      ],
+      "@/*": [
+        "./src/renderer/src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/renderer/**/*",
+    "src/shared/**/*",
+    "src/preload/api.d.ts",
+    "src/types/**/*"
+  ]
 }

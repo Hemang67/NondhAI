@@ -59,6 +59,18 @@ describe("cleanup rules", () => {
     expect(clean("i think so. then i left")).toBe("I think so. Then I left");
   });
 
+  it("formats spoken ordinal lists as numbered lists", () => {
+    expect(clean("Things to buy for the offsite, first coffee, second name badges, third a projector cable.")).toBe(
+      "Things to buy for the offsite:\n1. Coffee\n2. Name badges\n3. A projector cable",
+    );
+    expect(clean("first wake up second shower")).toBe("1. Wake up\n2. Shower");
+  });
+
+  it("does not turn a lone 'first' into a list", () => {
+    expect(clean("I was the first to arrive, second only to Sam.")).toBe("I was the first to arrive, second only to Sam.");
+    expect(clean("First, let me say thanks.")).toBe("First, let me say thanks.");
+  });
+
   it("returns empty string for filler-only input", () => {
     expect(clean("Um. Uh.")).toBe("");
   });

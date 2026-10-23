@@ -33,6 +33,10 @@ export interface CleanupOutcome {
   usedLlm: boolean;
   llmRejected: boolean;
   llmError?: string;
+  /** Raw model output when it was rejected, for local troubleshooting logs. */
+  rejectedOutput?: string;
+  /** A requested translation did not happen; `text` must not be pasted as if it had. */
+  translationFailed?: boolean;
 }
 
 export async function runCleanup(req: CleanupRequest, llm: LlmCall | null): Promise<CleanupOutcome> {
@@ -40,6 +44,7 @@ export async function runCleanup(req: CleanupRequest, llm: LlmCall | null): Prom
   const translating = !!req.translateTo;
   if (!ruled) return { text: "", usedLlm: false, llmRejected: false };
   const want = translating || req.mode === "always" || (req.mode === "auto" && needsLlm(ruled));
+  if (translating && !llm) return { text: ruled, usedLlm: false, llmRejected: false, translationFailed: true };
   if (!want || !llm || (req.mode === "never" && !translating)) {
     return { text: ruled, usedLlm: false, llmRejected: false };
   }
@@ -48,11 +53,19 @@ export async function runCleanup(req: CleanupRequest, llm: LlmCall | null): Prom
   try {
     const out = await llm(messages);
     const accepted = acceptCleanupOutput(ruled, out, { translated: translating });
-    if (accepted === null) return { text: ruled, usedLlm: true, llmRejected: true };
+    if (accepted === null) {
+      return { text: ruled, usedLlm: true, llmRejected: true, rejectedOutput: out, translationFailed: translating };
+    }
     // The LLM may undo dictionary spellings; re-apply them (not for translations).
     const final = translating ? accepted : applyRules(accepted, { dictionary: req.dictionary });
     return { text: final || ruled, usedLlm: true, llmRejected: false };
   } catch (err) {
-    return { text: ruled, usedLlm: true, llmRejected: false, llmError: err instanceof Error ? err.message : String(err) };
+    return {
+      text: ruled,
+      usedLlm: true,
+      llmRejected: false,
+      llmError: err instanceof Error ? err.message : String(err),
+      translationFailed: translating,
+    };
   }
 }

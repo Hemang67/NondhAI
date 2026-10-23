@@ -10,3 +10,4 @@ native/**/build/
 .DS_Store
 docs/evidence/**/*.wav
 docs/evidence/**/*.opus
+*.tsbuildinfo

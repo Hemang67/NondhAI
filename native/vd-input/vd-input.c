@@ -121,11 +121,11 @@ static LRESULT CALLBACK hookProc(int code, WPARAM wParam, LPARAM lParam) {
             swallow = TRUE;
             emit("DOWN %s", g_bindings[up].name);
           } else if (vk != g_bindings[g_active].key) {
-            emit("CANCEL %s", g_bindings[g_active].name); // chord was part of another shortcut
+            emit("CANCEL %s vk=0x%02X%s", g_bindings[g_active].name, vk, (k->flags & LLKHF_INJECTED) ? " injected" : ""); // chord was part of another shortcut
             g_active = -1;
           }
         } else if (mods != g_bindings[g_active].mods) {
-          emit("CANCEL %s", g_bindings[g_active].name);
+          emit("CANCEL %s vk=0x%02X%s", g_bindings[g_active].name, vk, (k->flags & LLKHF_INJECTED) ? " injected" : "");
           g_active = -1;
         }
       } else {

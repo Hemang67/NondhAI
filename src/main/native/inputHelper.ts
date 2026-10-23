@@ -24,10 +24,14 @@ export class InputHelper extends EventEmitter {
   private stopping = false;
   private restarts = 0;
 
+  constructor(private readonly args: string[] = []) {
+    super();
+  }
+
   start(): void {
     this.stopping = false;
     const exe = binPath("vd-input.exe");
-    const p = spawn(exe, [], { windowsHide: true });
+    const p = spawn(exe, this.args, { windowsHide: true });
     this.proc = p;
     createInterface({ input: p.stdout }).on("line", (line) => this.onLine(line));
     p.stderr.on("data", (d) => console.error("[vd-input]", String(d).trim()));
@@ -70,9 +74,11 @@ export class InputHelper extends EventEmitter {
         return;
       case "DOWN":
       case "UP":
-      case "CANCEL":
-        this.emit("chord", kind.toLowerCase(), arg, Date.now());
+      case "CANCEL": {
+        const [name = "", ...detail] = arg.split(" ");
+        this.emit("chord", kind.toLowerCase(), name, Date.now(), detail.join(" "));
         return;
+      }
       case "ESC":
         this.emit("escape", Date.now());
         return;

@@ -1,0 +1,12 @@
+2026-10-23T06:44:06.643Z INFO dictation dictate audio=5928ms stt=443ms cleanup=1ms (llm=false) paste=13ms total=457ms app=Notepad pasted=true
+2026-10-23T06:45:01.722Z INFO dictation dictate audio=5824ms stt=230ms cleanup=0ms (llm=false) paste=11ms total=241ms app=powershell pasted=true
+2026-10-23T06:45:45.214Z INFO dictation dictate audio=5824ms stt=272ms cleanup=0ms (llm=false) paste=6ms total=278ms app=chrome pasted=true
+2026-10-23T06:46:00.498Z INFO dictation dictate audio=5928ms stt=613ms cleanup=0ms (llm=false) paste=5ms total=618ms app=Code pasted=true
+2026-10-23T06:46:40.986Z INFO dictation dictate audio=5928ms stt=371ms cleanup=4625ms (llm=true) paste=14ms total=5010ms app=chrome pasted=true
+2026-10-23T06:48:51.561Z INFO dictation dictate audio=6032ms stt=362ms cleanup=2ms (llm=false) paste=6ms total=370ms app=powershell pasted=true
+2026-10-23T06:49:11.740Z INFO dictation translate audio=6240ms stt=98ms cleanup=8799ms (llm=true,rejected) paste=17ms total=8914ms app=powershell pasted=true
+2026-10-23T06:51:35.938Z INFO dictation aborted
+2026-10-23T06:52:57.271Z INFO dictation translate audio=6032ms stt=556ms cleanup=6471ms (llm=true) paste=443ms total=7470ms app=powershell pasted=true
+2026-10-23T06:53:02.649Z INFO dictation aborted
+2026-10-23T06:53:03.954Z INFO dictation aborted
+2026-10-23T06:53:05.852Z INFO dictation aborted

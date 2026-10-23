@@ -75,6 +75,39 @@ function applyScratchThat(text: string): string {
   return text.replace(/(?:^|(?<=[.!?]\s))[^.!?]*[.!?]?\s*(?:scratch that|delete that)[.!,]?\s*/gi, "");
 }
 
+const ORDINALS = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
+
+/**
+ * "Groceries, first eggs, second milk, third bread" → a numbered list. Requires the ordinals to
+ * appear in order starting at "first", each at a phrase boundary, so "the first to arrive,
+ * second only to Sam" is left alone.
+ */
+function applySpokenLists(text: string): string {
+  const re = new RegExp(`(^|[,:;.]\\s*|\\s(?:and\\s+)?)(${ORDINALS.join("|")})\\b[,:]?\\s+`, "gi");
+  const hits: Array<{ index: number; end: number; ord: number; lead: string }> = [];
+  for (const m of text.matchAll(re)) {
+    hits.push({ index: m.index!, end: m.index! + m[0].length, ord: ORDINALS.indexOf(m[2]!.toLowerCase()), lead: m[1]! });
+  }
+  // Find the first run "first, second, ..." in order.
+  // "first" itself must open a phrase ("..., first coffee"), never follow a word ("the first to").
+  const start = hits.findIndex((h) => h.ord === 0 && /^$|[,:;.]\s*$/.test(h.lead));
+  if (start < 0) return text;
+  const run = [hits[start]!];
+  for (let i = start + 1; i < hits.length && hits[i]!.ord === run.length; i++) run.push(hits[i]!);
+  if (run.length < 2) return text;
+  // Every item must be a short phrase, not a sentence that merely mentions "second".
+  const items = run.map((h, i) => {
+    const stop = i + 1 < run.length ? run[i + 1]!.index : text.length;
+    return text.slice(h.end, stop).replace(/^[\s,]+|[\s,.;]+$/g, "").replace(/^and\s+/i, "");
+  });
+  if (items.some((it) => !it || it.split(/\s+/).length > 12)) return text;
+  // "first wake up" with "first" at a sentence start and a comma right after is "First, let me..." — handled by the run check.
+  const header = text.slice(0, run[0]!.index).replace(/[\s,:;]+$/, "");
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const list = items.map((it, i) => `${i + 1}. ${cap(it)}`).join("\n");
+  return header ? `${header}:\n${list}` : list;
+}
+
 function applySpokenBreaks(text: string): string {
   return text
     .replace(/[,.]?\s*\bnew paragraph\b[,.]?\s*/gi, "\n\n")
@@ -123,6 +156,7 @@ export function applyRules(input: string, opts: RuleOptions): string {
   t = applyScratchThat(t);
   t = applySelfCorrections(t);
   t = applySpokenBreaks(t);
+  t = applySpokenLists(t);
   t = applyDictionary(t, opts.dictionary);
   t = tidySpacing(t);
   // Sentences that were nothing but fillers leave stray punctuation behind.

@@ -55,6 +55,14 @@ describe("runCleanup", () => {
     expect(r.text).toBe("Buenos días.");
   });
 
+  it("flags a failed translation instead of returning the untranslated text as success", async () => {
+    const llm = vi.fn().mockResolvedValue("good morning");
+    const r = await runCleanup({ raw: "good morning", dictionary: [], mode: "auto", translateTo: "Spanish" }, llm);
+    expect(r.translationFailed).toBe(true);
+    const noLlm = await runCleanup({ raw: "good morning", dictionary: [], mode: "auto", translateTo: "Spanish" }, null);
+    expect(noLlm.translationFailed).toBe(true);
+  });
+
   it("returns empty for filler-only speech without calling the LLM", async () => {
     const llm = vi.fn();
     expect((await runCleanup({ raw: "um uh", dictionary: [], mode: "always" }, llm)).text).toBe("");

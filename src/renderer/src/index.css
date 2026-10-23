@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+
+@theme {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-muted: var(--muted);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-warn: var(--warn);
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+:root {
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --muted: #f0f1f3;
+  --fg: #16181d;
+  --fg-muted: #5d6470;
+  --line: #e3e5e9;
+  --accent: #0284c7;
+  --accent-fg: #ffffff;
+  --warn: #b45309;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --muted: #1a1e25;
+    --fg: #e8eaee;
+    --fg-muted: #9aa3b2;
+    --line: #262b33;
+    --accent: #38bdf8;
+    --accent-fg: #06121a;
+    --warn: #fbbf24;
+    color-scheme: dark;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+html.pill-root,
+html.pill-root body {
+  background: transparent;
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

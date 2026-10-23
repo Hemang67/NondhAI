@@ -67,12 +67,12 @@ export class LlamaServer {
       "--host", "127.0.0.1",
       "--port", String(this.port),
       "-c", "8192",
+      "-np", "1", // one slot, so the shared cleanup prompt prefix stays cached between calls
       "--no-webui",
       ...(gpu ? ["-ngl", "99"] : ["-t", "8"]),
     ];
     const t0 = Date.now();
-    // llama-server exits with code 1 on Windows when its stdout/stderr are null handles, so
-    // keep them as pipes and drain them into a log file.
+    // Server output goes to a log file for troubleshooting.
     const p = spawn(join(dir, "llama-server.exe"), args, { cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     const log = createWriteStream(userDataPath("logs", "llama-server.log"), { flags: "a" });
     p.stdout?.pipe(log);
