@@ -35,12 +35,42 @@ export type PillState =
 
 export interface ModelInfo {
   id: string;
-  engine: "parakeet" | "whisper" | "llm";
+  engine: "parakeet" | "whisper" | "llm" | "speaker";
   name: string;
   sizeMb: number;
   description: string;
   installed: boolean;
   downloading?: { received: number; total: number };
+}
+
+export type MeetingKind = "call" | "room" | "import";
+export type MeetingStatus = "recording" | "processing" | "ready" | "failed";
+
+export interface MeetingRecord {
+  id: string;
+  title: string;
+  kind: MeetingKind;
+  status: MeetingStatus;
+  startedAt: number;
+  endedAt: number | null;
+  durationMs: number;
+  dir: string;
+  audioFile: string | null;
+  audioEncrypted: boolean;
+  audioExpiresAt: number | null;
+  sourceApp: string | null;
+  summary: import("./meeting/types").MeetingSummary | null;
+  attendees: string[];
+  calendarEventId: string | null;
+  error: string | null;
+  recovered: boolean;
+}
+
+export interface PersonRecord {
+  id: string;
+  name: string;
+  isMe: boolean;
+  voiceprints: number;
 }
 
 export interface SttResult {

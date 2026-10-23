@@ -83,7 +83,17 @@ async function openAiCompatChat(
     headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
     body: JSON.stringify({
       model,
-      messages,
+      messages: messages.map((m) =>
+        m.images?.length
+          ? {
+              role: m.role,
+              content: [
+                { type: "text", text: m.content },
+                ...m.images.map((b64) => ({ type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } })),
+              ],
+            }
+          : { role: m.role, content: m.content },
+      ),
       max_tokens: opts.maxTokens ?? 1024,
       temperature: opts.temperature ?? 0.2,
       stream: false,
@@ -101,7 +111,15 @@ async function anthropicChat(apiKey: string, model: string, messages: ChatMessag
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
   const rest: Anthropic.Beta.BetaMessageParam[] = messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.images?.length
+        ? [
+            ...m.images.map((data) => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data } })),
+            { type: "text" as const, text: m.content },
+          ]
+        : m.content,
+    }));
   const maxTokens = opts.maxTokens ?? 16000;
   // Server-side fallback: if the model declines a request on policy grounds, the API retries it
   // on the model's default fallback instead of returning an empty refusal.

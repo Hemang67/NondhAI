@@ -1,12 +1,23 @@
-import { BrowserWindow, screen, shell } from "electron";
+import { app, BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
 import type { PillState } from "@shared/types";
 
 const preload = join(__dirname, "../preload/index.js");
 
+export function resourcePath(name: string): string {
+  return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), "resources", name);
+}
+
 function loadRoute(win: BrowserWindow, route: string): void {
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}#/${route}`);
   else void win.loadFile(join(__dirname, "../renderer/index.html"), { hash: `/${route}` });
+}
+
+function denyNewWindows(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
 }
 
 const PILL_W = 260;
@@ -54,22 +65,113 @@ export function showPill(win: BrowserWindow, state: PillState): void {
 
 export function createPanelWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1040,
-    height: 720,
-    minWidth: 760,
+    width: 1100,
+    height: 760,
+    minWidth: 780,
     minHeight: 520,
     show: false,
     title: "Nondh AI",
-    icon: join(__dirname, "../../resources/icon.ico"),
+    icon: resourcePath("icon.ico"),
     backgroundColor: "#0b0d10",
     autoHideMenuBar: true,
     webPreferences: { preload, sandbox: false },
   });
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url);
-    return { action: "deny" };
-  });
+  denyNewWindows(win);
   loadRoute(win, "panel");
   win.once("ready-to-show", () => win.show());
+  return win;
+}
+
+/** Live transcript while a meeting is recorded. */
+export function createMeetingWindow(): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    width: 440,
+    height: 620,
+    x: workArea.x + workArea.width - 460,
+    y: workArea.y + 80,
+    show: false,
+    title: "Nondh AI — Recording",
+    icon: resourcePath("icon.ico"),
+    backgroundColor: "#0b0d10",
+    autoHideMenuBar: true,
+    webPreferences: { preload, sandbox: false },
+  });
+  denyNewWindows(win);
+  loadRoute(win, "meeting-live");
+  win.once("ready-to-show", () => win.show());
+  return win;
+}
+
+/**
+ * The always-visible recording indicator. It cannot be closed while recording; clicking it
+ * opens the live window.
+ */
+export function createRecIndicator(): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    width: 190,
+    height: 44,
+    x: workArea.x + Math.round(workArea.width / 2) - 95,
+    y: workArea.y + 8,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    closable: false,
+    hasShadow: false,
+    show: false,
+    webPreferences: { preload, sandbox: false },
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces(true);
+  loadRoute(win, "rec");
+  win.once("ready-to-show", () => win.showInactive());
+  return win;
+}
+
+/** "Meeting detected — record?" prompt in the corner. */
+export function createToastWindow(): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    width: 360,
+    height: 150,
+    x: workArea.x + workArea.width - 376,
+    y: workArea.y + workArea.height - 166,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    focusable: true,
+    webPreferences: { preload, sandbox: false },
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  loadRoute(win, "toast");
+  return win;
+}
+
+/** Floating answer panel for the voice assistant. */
+export function createAssistantWindow(): BrowserWindow {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const { workArea } = display;
+  const win = new BrowserWindow({
+    width: 520,
+    height: 420,
+    x: workArea.x + Math.round((workArea.width - 520) / 2),
+    y: workArea.y + Math.round(workArea.height / 5),
+    frame: false,
+    transparent: true,
+    resizable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: { preload, sandbox: false },
+  });
+  denyNewWindows(win);
+  loadRoute(win, "assistant");
   return win;
 }

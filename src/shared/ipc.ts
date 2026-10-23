@@ -1,5 +1,35 @@
-import type { DictationRecord, DictionaryRow, ModelInfo, PillState } from "./types";
+import type { DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState } from "./types";
 import type { Settings } from "./settings";
+import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
+import type { FolderRecord, NoteRecord, SearchHit } from "./notes";
+
+export interface RecordingState {
+  id: string;
+  title: string;
+  kind: "call" | "room" | "import";
+  startedAt: number;
+  mic: string;
+  system: string;
+}
+
+export interface MeetingDetail {
+  meeting: MeetingRecord;
+  lines: TranscriptLine[];
+  speakers: Array<SpeakerLabel & { confirmed: boolean }>;
+  /** Attendee names from the linked calendar event, offered when naming speakers. */
+  suggestions: string[];
+}
+
+export type ExportFormat = "md" | "txt" | "docx" | "srt" | "vtt";
+export type NoteAction = "summarize" | "rewrite" | "tasks" | "email";
+
+export interface AssistantState {
+  phase: "listening" | "thinking" | "answer" | "error";
+  command?: string;
+  answer?: string;
+  error?: string;
+  cloud?: boolean;
+}
 
 /** renderer → main request/response */
 export interface InvokeMap {
@@ -10,6 +40,7 @@ export interface InvokeMap {
   "history:list": [[opts: { query?: string; limit?: number }], DictationRecord[]];
   "history:delete": [[id: string], void];
   "history:copy": [[id: string, which: "clean" | "raw"], void];
+  "history:toNote": [[id: string], NoteRecord];
   "dictionary:list": [[], DictionaryRow[]];
   "dictionary:upsert": [[row: Omit<DictionaryRow, "id"> & { id?: string }], DictionaryRow];
   "dictionary:delete": [[id: string], void];
@@ -17,9 +48,57 @@ export interface InvokeMap {
   "models:download": [[id: string], void];
   "models:cancel": [[id: string], void];
   "models:delete": [[id: string], void];
-  "app:info": [[], { version: string; modelsDir: string; userData: string }];
-  "app:pickModelsDir": [[], string | null];
+  "app:info": [[], { version: string; modelsDir: string; userData: string; meetingsDir: string; apiToken: string | null; mcpCommand: string }];
+  "app:pickFolder": [[], string | null];
+  "app:deleteAllAudio": [[], void];
+  "app:deleteEverything": [[], void];
+  "app:setDatabaseEncryption": [[enabled: boolean], void];
   "dictation:toggle": [[], void];
+  // meetings
+  "meetings:list": [[opts: { query?: string }], MeetingRecord[]];
+  "meetings:get": [[id: string], MeetingDetail | null];
+  "meetings:start": [[opts: { kind: "call" | "room"; title?: string }], RecordingState];
+  "meetings:stop": [[], string | null];
+  "meetings:recording": [[], RecordingState | null];
+  "meetings:rename": [[id: string, title: string], void];
+  "meetings:renameSpeaker": [[id: string, key: string, name: string], void];
+  "meetings:setLineSpeaker": [[id: string, lineId: string, key: string], void];
+  "meetings:editLine": [[id: string, lineId: string, text: string], void];
+  "meetings:summarize": [[id: string], void];
+  "meetings:ask": [[id: string | null, question: string], { answer: string; cloud: boolean }];
+  "meetings:export": [[id: string, format: ExportFormat], string | null];
+  "meetings:deleteAudio": [[id: string], void];
+  "meetings:delete": [[id: string], void];
+  "meetings:reprocess": [[id: string], void];
+  "meetings:import": [[paths?: string[]], string[]];
+  "meetings:toNote": [[id: string], NoteRecord];
+  "meetings:copyConsent": [[], void];
+  // people
+  "people:list": [[], PersonRecord[]];
+  "people:rename": [[id: string, name: string], void];
+  "people:delete": [[id: string], void];
+  "people:enroll": [[name: string, samples: Float32Array], void];
+  "toast:respond": [[action: "record" | "dismiss" | "stop"], void];
+  // notes & search
+  "notes:list": [[opts: { folderId?: string | null; query?: string }], NoteRecord[]];
+  "notes:get": [[id: string], NoteRecord | null];
+  "notes:create": [[n: { title?: string; folderId?: string | null; bodyJson?: string; bodyText?: string }], NoteRecord];
+  "notes:update": [[id: string, patch: { title?: string; folderId?: string | null; bodyJson?: string; bodyText?: string }], NoteRecord];
+  "notes:delete": [[id: string], void];
+  "notes:action": [[id: string, action: NoteAction], { text: string; cloud: boolean }];
+  "folders:list": [[], FolderRecord[]];
+  "folders:create": [[name: string, parentId?: string | null], FolderRecord];
+  "folders:rename": [[id: string, name: string], void];
+  "folders:delete": [[id: string], void];
+  "search:query": [[q: string, opts?: { semantic?: boolean }], SearchHit[]];
+  // assistant
+  "assistant:paste": [[], void];
+  "assistant:close": [[], void];
+  // calendar
+  "calendar:status": [[], { google: boolean; microsoft: boolean }];
+  "calendar:connect": [[provider: "google" | "microsoft"], void];
+  "calendar:disconnect": [[provider: "google" | "microsoft"], void];
+  "calendar:upcoming": [[], Array<{ id: string; title: string; start: number; end: number; attendees: string[]; provider: string }>];
 }
 
 /** main → renderer events */
@@ -29,6 +108,15 @@ export interface EventMap {
   "recorder:stop": [sessionId: string];
   "models:changed": [];
   "history:changed": [];
+  "meeting:state": [RecordingState | null];
+  "meeting:line": [meetingId: string, line: TranscriptLine];
+  "meeting:level": [mic: number, system: number];
+  "meeting:progress": [meetingId: string, text: string];
+  "meetings:changed": [];
+  "people:changed": [];
+  "notes:changed": [];
+  "toast:show": [info: { kind: "detected" | "ended"; app: string }];
+  "assistant:state": [AssistantState];
 }
 
 /** renderer → main fire-and-forget */
@@ -38,22 +126,35 @@ export interface SendMap {
   "recorder:stopped": [sessionId: string];
 }
 
+type Keys<T> = ReadonlyArray<keyof T>;
 export const INVOKE_CHANNELS = [
   "settings:get", "settings:update", "secrets:status", "secrets:set",
-  "history:list", "history:delete", "history:copy",
+  "history:list", "history:delete", "history:copy", "history:toNote",
   "dictionary:list", "dictionary:upsert", "dictionary:delete",
   "models:list", "models:download", "models:cancel", "models:delete",
-  "app:info", "app:pickModelsDir", "dictation:toggle",
-] as const satisfies ReadonlyArray<keyof InvokeMap>;
+  "app:info", "app:pickFolder", "app:deleteAllAudio", "app:deleteEverything", "app:setDatabaseEncryption",
+  "dictation:toggle",
+  "meetings:list", "meetings:get", "meetings:start", "meetings:stop", "meetings:recording", "meetings:rename",
+  "meetings:renameSpeaker", "meetings:setLineSpeaker", "meetings:editLine", "meetings:summarize", "meetings:ask",
+  "meetings:export", "meetings:deleteAudio", "meetings:delete", "meetings:reprocess", "meetings:import",
+  "meetings:toNote", "meetings:copyConsent",
+  "people:list", "people:rename", "people:delete", "people:enroll", "toast:respond",
+  "notes:list", "notes:get", "notes:create", "notes:update", "notes:delete", "notes:action",
+  "folders:list", "folders:create", "folders:rename", "folders:delete", "search:query",
+  "assistant:paste", "assistant:close",
+  "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming",
+] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
   "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",
-] as const satisfies ReadonlyArray<keyof EventMap>;
-export const SEND_CHANNELS = [
-  "recorder:chunk", "recorder:started", "recorder:stopped",
-] as const satisfies ReadonlyArray<keyof SendMap>;
+  "meeting:state", "meeting:line", "meeting:level", "meeting:progress", "meetings:changed", "people:changed",
+  "notes:changed", "toast:show", "assistant:state",
+] as const satisfies Keys<EventMap>;
+export const SEND_CHANNELS = ["recorder:chunk", "recorder:started", "recorder:stopped"] as const satisfies Keys<SendMap>;
 
 export interface VdApi {
   invoke<K extends keyof InvokeMap>(channel: K, ...args: InvokeMap[K][0]): Promise<InvokeMap[K][1]>;
   send<K extends keyof SendMap>(channel: K, ...args: SendMap[K]): void;
   on<K extends keyof EventMap>(channel: K, cb: (...args: EventMap[K]) => void): () => void;
+  /** Absolute path of a file dropped onto the window (Electron webUtils). */
+  pathForFile(file: File): string;
 }

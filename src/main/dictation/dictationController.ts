@@ -26,6 +26,10 @@ export interface DictationDeps {
   setPill: (s: PillState) => void;
   llmAvailable: () => boolean;
   onDictation?: () => void;
+  assistant?: {
+    readSelection(target: ForegroundInfo | null): Promise<string | null>;
+    run(command: string, target: ForegroundInfo | null, selection: string | null): Promise<void>;
+  };
 }
 
 const MIN_AUDIO_MS = 350;
@@ -57,7 +61,12 @@ export class DictationController {
   }
 
   private onChord(kind: "down" | "up" | "cancel", name: string, t: number, detail = ""): void {
-    if (name !== "dictate" && name !== "translate" && name !== "assistant") return;
+    if (name !== "dictate" && name !== "translate" && name !== "assistant") {
+      // Ctrl+Win grew into another shortcut (e.g. Ctrl+Win+M for meetings): drop the dictation
+      // that the shared prefix started.
+      if (kind === "down") this.apply(this.machine.cancel(t));
+      return;
+    }
     log.info(`chord ${kind} ${name}${detail ? ` (${detail})` : ""} state=${this.machine.state}`);
     if (kind === "down") {
       if (this.busy && this.machine.state === "idle") return; // still pasting the last one
@@ -196,6 +205,25 @@ export class DictationController {
       const sttDone = Date.now();
       if (!stt.text.trim()) {
         this.flashError("No speech detected");
+        return;
+      }
+      if (a.mode === "assistant") {
+        // A spoken command, not text to type: hand it to the assistant.
+        this.d.setPill({ kind: "hidden" });
+        const selection = this.d.assistant ? await this.d.assistant.readSelection(a.target) : null;
+        this.d.store.addDictation({
+          rawText: stt.text,
+          cleanText: stt.text.trim(),
+          mode: "assistant",
+          engine: stt.engine,
+          model: stt.model,
+          durationMs: Math.round(a.audioMs),
+          latencyMs: Date.now() - stopAt,
+          appName: a.target?.appName ?? null,
+          cloudUsed: stt.cloud,
+        });
+        this.d.onDictation?.();
+        await this.d.assistant?.run(stt.text.trim(), a.target, selection);
         return;
       }
       const translateTo = a.mode === "translate" ? s.translate.target : undefined;

@@ -42,6 +42,12 @@ export class LlamaServer {
   private port = 0;
   private starting: Promise<string> | null = null;
 
+  /**
+   * `mode: "embedding"` runs a text-embedding model (small, CPU) for semantic search instead
+   * of a chat model.
+   */
+  constructor(private readonly mode: "chat" | "embedding" = "chat") {}
+
   async ensure(modelFile: string, gpu: boolean): Promise<string> {
     const key = `${modelFile}|${gpu}`;
     if (this.proc && this.key === key && this.proc.exitCode === null) return this.baseUrl;
@@ -62,19 +68,22 @@ export class LlamaServer {
     if (!existsSync(modelFile)) throw new Error(`LLM model not found: ${modelFile}`);
     const dir = binPath(gpu ? "llama-vulkan" : "llama-cpu");
     this.port = await freePort();
-    const args = [
-      "-m", modelFile,
-      "--host", "127.0.0.1",
-      "--port", String(this.port),
-      "-c", "8192",
-      "-np", "1", // one slot, so the shared cleanup prompt prefix stays cached between calls
-      "--no-webui",
-      ...(gpu ? ["-ngl", "99"] : ["-t", "8"]),
-    ];
+    const args =
+      this.mode === "embedding"
+        ? ["-m", modelFile, "--host", "127.0.0.1", "--port", String(this.port), "--embedding", "--pooling", "cls", "-c", "512", "-b", "512", "-ub", "512", "-t", "4", "--no-webui"]
+        : [
+            "-m", modelFile,
+            "--host", "127.0.0.1",
+            "--port", String(this.port),
+            "-c", "8192",
+            "-np", "1", // one slot, so the shared cleanup prompt prefix stays cached between calls
+            "--no-webui",
+            ...(gpu ? ["-ngl", "99"] : ["-t", "8"]),
+          ];
     const t0 = Date.now();
     // Server output goes to a log file for troubleshooting.
     const p = spawn(join(dir, "llama-server.exe"), args, { cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    const log = createWriteStream(userDataPath("logs", "llama-server.log"), { flags: "a" });
+    const log = createWriteStream(userDataPath("logs", `llama-server-${this.mode}.log`), { flags: "a" });
     p.stdout?.pipe(log);
     p.stderr?.pipe(log);
     this.proc = p;
@@ -84,7 +93,7 @@ export class LlamaServer {
       this.stop();
       throw err;
     }
-    console.log(`[llama] ${modelFile} ready on ${this.port} (${gpu ? "vulkan" : "cpu"}) in ${Date.now() - t0} ms`);
+    console.log(`[llama:${this.mode}] ${modelFile} ready on ${this.port} (${gpu ? "vulkan" : "cpu"}) in ${Date.now() - t0} ms`);
     return this.baseUrl;
   }
 

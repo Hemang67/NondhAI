@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import { INVOKE_CHANNELS, EVENT_CHANNELS, SEND_CHANNELS } from "../shared/ipc";
 
 const invokeSet = new Set<string>(INVOKE_CHANNELS);
@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld("vd", {
     ipcRenderer.on(channel, fn);
     return () => ipcRenderer.removeListener(channel, fn);
   },
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
 });

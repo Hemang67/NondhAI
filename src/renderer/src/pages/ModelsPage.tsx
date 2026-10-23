@@ -5,9 +5,13 @@ import { Badge, Button, Card } from "../components/ui";
 
 const GROUPS: Array<{ engine: ModelInfo["engine"]; title: string; description: string }> = [
   { engine: "parakeet", title: "Parakeet", description: "Fast local speech recognition. Default engine." },
+  { engine: "speaker", title: "Speaker models", description: "Tell speakers apart and recognize voices in meetings (downloaded automatically)." },
   { engine: "whisper", title: "Whisper", description: "Multilingual local speech recognition (whisper.cpp)." },
   { engine: "llm", title: "Local language models", description: "Used for cleanup, translation and, later, summaries (llama.cpp)." },
 ];
+
+/** Speaker and search-embedding models are used automatically, never "picked". */
+const selectable = (m: ModelInfo) => m.engine !== "speaker" && m.id !== "bge-small-embedding";
 
 export function ModelsPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -72,12 +76,12 @@ export function ModelsPage() {
                       <Button onClick={() => void window.vd.invoke("models:cancel", m.id)}>Cancel</Button>
                     ) : m.installed ? (
                       <>
-                        {!active(m) && (
+                        {!active(m) && selectable(m) && (
                           <Button variant="primary" onClick={() => void use(m)}>
                             Use
                           </Button>
                         )}
-                        <Button variant="danger" disabled={active(m)} onClick={() => void window.vd.invoke("models:delete", m.id)}>
+                        <Button variant="danger" disabled={active(m) || !selectable(m)} onClick={() => void window.vd.invoke("models:delete", m.id)}>
                           Delete
                         </Button>
                       </>

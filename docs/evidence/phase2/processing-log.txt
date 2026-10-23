@@ -1,0 +1,48 @@
+2026-10-23T07:38:17.894Z INFO recovering meeting ff8be44e-ed53-41eb-a970-9cc0a1b38a0a (12 s of audio)
+2026-10-23T07:38:17.899Z INFO recovering meeting 8914afdd-5102-4eaf-b899-ea9b412cfc92 (12 s of audio)
+2026-10-23T07:38:19.655Z INFO final pass mic: 1 segments in 1750 ms
+2026-10-23T07:38:21.591Z INFO final pass system: 1 segments in 1934 ms
+2026-10-23T07:38:25.967Z INFO diarized D:\Nondh AI-data\meetings\ff8be44e-ed53-41eb-a970-9cc0a1b38a0a\system.pcm: 1 speakers, 1 turns in 4363 ms
+2026-10-23T07:38:25.985Z INFO meeting ff8be44e-ed53-41eb-a970-9cc0a1b38a0a: 2 lines, 2 speakers, 15 echo words removed
+2026-10-23T07:38:27.084Z INFO meeting ff8be44e-ed53-41eb-a970-9cc0a1b38a0a processed in 9 s
+2026-10-23T07:38:27.656Z INFO search index: embedded 1 items
+2026-10-23T07:38:41.655Z INFO search index: embedded 1 items
+2026-10-23T07:38:42.987Z INFO final pass mic: 1 segments in 1374 ms
+2026-10-23T07:38:44.652Z INFO final pass system: 1 segments in 1663 ms
+2026-10-23T07:38:47.373Z INFO diarized D:\Nondh AI-data\meetings\8914afdd-5102-4eaf-b899-ea9b412cfc92\system.pcm: 1 speakers, 1 turns in 2718 ms
+2026-10-23T07:38:47.375Z INFO meeting 8914afdd-5102-4eaf-b899-ea9b412cfc92: 2 lines, 2 speakers, 10 echo words removed
+2026-10-23T07:38:48.346Z INFO meeting 8914afdd-5102-4eaf-b899-ea9b412cfc92 processed in 7 s
+2026-10-23T07:38:48.382Z INFO search index: embedded 1 items
+2026-10-23T07:39:00.782Z INFO search index: embedded 1 items
+2026-10-23T07:39:16.307Z INFO meeting a67ddadd-a1b5-40db-bbe9-dbcd5f5bc9ee recording started (call, aec=true)
+2026-10-23T07:40:02.474Z INFO meeting a67ddadd-a1b5-40db-bbe9-dbcd5f5bc9ee stopped after 46 s; processing
+2026-10-23T07:40:09.371Z INFO final pass mic: 0 segments in 6815 ms
+2026-10-23T07:40:21.220Z INFO final pass system: 11 segments in 11816 ms
+2026-10-23T07:40:30.492Z INFO diarized D:\Nondh AI-data\meetings\a67ddadd-a1b5-40db-bbe9-dbcd5f5bc9ee\system.pcm: 3 speakers, 11 turns in 9270 ms
+2026-10-23T07:40:30.495Z INFO meeting a67ddadd-a1b5-40db-bbe9-dbcd5f5bc9ee: 11 lines, 3 speakers, 0 echo words removed
+2026-10-23T07:40:31.745Z INFO meeting a67ddadd-a1b5-40db-bbe9-dbcd5f5bc9ee processed in 29 s
+2026-10-23T07:40:31.804Z INFO search index: embedded 1 items
+2026-10-23T07:40:48.478Z INFO search index: embedded 1 items
+2026-10-23T07:41:16.894Z INFO final pass mixed: 11 segments in 10422 ms
+2026-10-23T07:41:24.724Z INFO diarized D:\Nondh AI-data\meetings\e4f9afbf-e410-4484-8ddc-4e1e30c2465e\mixed.pcm: 3 speakers, 11 turns in 7826 ms
+2026-10-23T07:41:24.727Z INFO meeting e4f9afbf-e410-4484-8ddc-4e1e30c2465e: 11 lines, 3 speakers, 0 echo words removed
+2026-10-23T07:41:25.745Z INFO meeting e4f9afbf-e410-4484-8ddc-4e1e30c2465e processed in 19 s
+2026-10-23T07:41:25.814Z INFO search index: embedded 1 items
+2026-10-23T07:41:41.925Z INFO search index: embedded 1 items
+2026-10-23T07:43:59.748Z INFO search index: embedded 15 items
+2026-10-23T07:45:32.161Z INFO final pass mixed: 0 segments in 11558 ms
+2026-10-23T07:45:32.164Z INFO meeting c177d54e-5598-45cc-8360-77869f48d270: 0 lines, 0 speakers, 0 echo words removed
+2026-10-23T07:45:34.055Z INFO meeting c177d54e-5598-45cc-8360-77869f48d270 processed in 13 s
+2026-10-23T07:45:34.408Z INFO search index: embedded 1 items
+2026-10-23T07:46:13.895Z INFO final pass mixed: 12 segments in 15115 ms
+2026-10-23T07:46:23.025Z INFO diarized D:\Nondh AI-data\meetings\16f4d3ef-1e30-45b4-9817-3e638ddf645a\mixed.pcm: 5 speakers, 18 turns in 9127 ms
+2026-10-23T07:46:23.031Z INFO meeting 16f4d3ef-1e30-45b4-9817-3e638ddf645a: 16 lines, 4 speakers, 0 echo words removed
+2026-10-23T07:46:23.968Z INFO meeting 16f4d3ef-1e30-45b4-9817-3e638ddf645a processed in 25 s
+2026-10-23T07:46:24.126Z INFO search index: embedded 1 items
+2026-10-23T07:46:35.584Z INFO search index: embedded 1 items
+2026-10-23T07:47:00.111Z INFO final pass mixed: 6 segments in 6621 ms
+2026-10-23T07:47:04.654Z INFO diarized D:\Nondh AI-data\meetings\2f2578a1-65d7-4e30-8458-ea2138f4e224\mixed.pcm: 1 speakers, 5 turns in 4535 ms
+2026-10-23T07:47:04.657Z INFO meeting 2f2578a1-65d7-4e30-8458-ea2138f4e224: 6 lines, 1 speakers, 0 echo words removed
+2026-10-23T07:47:05.217Z INFO meeting 2f2578a1-65d7-4e30-8458-ea2138f4e224 processed in 12 s
+2026-10-23T07:47:05.284Z INFO search index: embedded 1 items
+2026-10-23T07:47:12.412Z INFO search index: embedded 1 items

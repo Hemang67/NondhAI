@@ -16,6 +16,6 @@ export function userDataPath(...parts: string[]): string {
 
 export function modelsDir(configured: string): string {
   const dir = configured || userDataPath("models");
-  for (const sub of ["parakeet", "whisper", "llm", "vad"]) mkdirSync(join(dir, sub), { recursive: true });
+  for (const sub of ["parakeet", "whisper", "llm", "vad", "speaker"]) mkdirSync(join(dir, sub), { recursive: true });
   return dir;
 }

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 export interface ModelDef {
   id: string;
-  engine: "parakeet" | "whisper" | "llm" | "vad";
+  engine: "parakeet" | "whisper" | "llm" | "vad" | "speaker";
   name: string;
   sizeMb: number;
   description: string;
@@ -11,6 +11,8 @@ export interface ModelDef {
   /** Archive downloads extract into this folder name; plain files are saved as `file`. */
   archiveDir?: string;
   file?: string;
+  /** File inside archiveDir whose presence means the archive was extracted (default tokens.txt). */
+  marker?: string;
 }
 
 const HF_WHISPER = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
@@ -84,6 +86,34 @@ export const MODELS: ModelDef[] = [
     file: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
   },
   {
+    id: "pyannote-segmentation-3.0",
+    engine: "speaker",
+    name: "Pyannote segmentation 3.0",
+    sizeMb: 6,
+    description: "Finds who-spoke-when boundaries (meetings).",
+    url: `${SHERPA}/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2`,
+    archiveDir: "sherpa-onnx-pyannote-segmentation-3-0",
+    marker: "model.onnx",
+  },
+  {
+    id: "campplus-speaker-embedding",
+    engine: "speaker",
+    name: "3D-Speaker CAM++ voice embeddings",
+    sizeMb: 28,
+    description: "Voice fingerprints for telling speakers apart and recognizing them later.",
+    url: `${SHERPA}/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx`,
+    file: "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+  },
+  {
+    id: "bge-small-embedding",
+    engine: "llm",
+    name: "BGE small en v1.5 (Q8, embeddings)",
+    sizeMb: 37,
+    description: "Small text-embedding model for semantic search (runs on CPU).",
+    url: "https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-q8_0.gguf",
+    file: "bge-small-en-v1.5-q8_0.gguf",
+  },
+  {
     id: "silero-vad",
     engine: "vad",
     name: "Silero VAD",
@@ -104,7 +134,7 @@ export function modelPath(modelsDir: string, m: ModelDef): string {
 
 export function isInstalled(modelsDir: string, m: ModelDef): boolean {
   const p = modelPath(modelsDir, m);
-  return m.archiveDir ? existsSync(join(p, "tokens.txt")) : existsSync(p);
+  return m.archiveDir ? existsSync(join(p, m.marker ?? "tokens.txt")) : existsSync(p);
 }
 
 export function parakeetDir(modelsDir: string, id: string): string {
@@ -116,6 +146,15 @@ export function parakeetDir(modelsDir: string, id: string): string {
 export function whisperFile(modelsDir: string, id: string): string {
   return join(modelsDir, "whisper", `ggml-${id}.bin`);
 }
+
+export function diarizationFiles(modelsDir: string): { segmentation: string; embedding: string } | null {
+  const seg = modelDef("pyannote-segmentation-3.0")!;
+  const emb = modelDef("campplus-speaker-embedding")!;
+  if (!isInstalled(modelsDir, seg) || !isInstalled(modelsDir, emb)) return null;
+  return { segmentation: join(modelPath(modelsDir, seg), "model.onnx"), embedding: modelPath(modelsDir, emb) };
+}
+
+export const SPEAKER_MODEL = "campplus-v1";
 
 export function vadFile(modelsDir: string): string {
   return join(modelsDir, "vad", "silero_vad.onnx");

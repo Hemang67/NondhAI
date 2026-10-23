@@ -16,6 +16,7 @@
     "test/**/*",
     "electron.vite.config.ts",
     "vitest.config.ts",
-    "src/types/**/*"
+    "src/types/**/*",
+    "src/mcp/**/*"
   ]
 }

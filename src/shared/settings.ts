@@ -37,6 +37,23 @@ export interface Settings {
   translate: { target: string };
   paste: { restoreClipboard: boolean; restoreDelayMs: number };
   ui: { showPill: boolean };
+  meetings: {
+    /** Folder for recordings; empty = <userData>/meetings. */
+    dir: string;
+    /** Detect Zoom/Teams/Meet/... calls and offer to record. */
+    autoDetect: boolean;
+    /** Echo cancellation on the mic track (for speakers; harmless on headphones). */
+    aec: boolean;
+    /** Delete recorded audio after this many days; 0 keeps it forever. Transcripts are kept. */
+    keepAudioDays: number;
+    encryptAudio: boolean;
+    consentMessage: string;
+    summarize: boolean;
+  };
+  privacy: { encryptDatabase: boolean };
+  assistant: { includeScreenshot: boolean; answerMode: "panel" | "paste" };
+  api: { enabled: boolean; port: number };
+  calendar: { googleClientId: string; googleClientSecret: string; microsoftClientId: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -68,6 +85,19 @@ export const DEFAULT_SETTINGS: Settings = {
   translate: { target: "Spanish" },
   paste: { restoreClipboard: true, restoreDelayMs: 400 },
   ui: { showPill: true },
+  meetings: {
+    dir: "",
+    autoDetect: true,
+    aec: true,
+    keepAudioDays: 0,
+    encryptAudio: false,
+    consentMessage: "Heads up: I'm recording this call for my notes. Let me know if you'd rather I didn't.",
+    summarize: true,
+  },
+  privacy: { encryptDatabase: false },
+  assistant: { includeScreenshot: false, answerMode: "panel" },
+  api: { enabled: false, port: 47821 },
+  calendar: { googleClientId: "", googleClientSecret: "", microsoftClientId: "" },
 };
 
 /** Deep-merge saved settings over defaults so new fields get defaults after upgrades. */

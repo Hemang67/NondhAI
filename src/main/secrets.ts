@@ -15,7 +15,13 @@ export const SECRET_NAMES = [
   "openrouter",
   "custom",
   "db-key",
+  "audio-key",
+  "google-oauth",
+  "microsoft-oauth",
+  "api-token",
 ] as const;
+/** Secrets the app manages itself; never shown or set from the settings page. */
+export const INTERNAL_SECRETS = new Set<string>(["db-key", "audio-key", "google-oauth", "microsoft-oauth", "api-token"]);
 export type SecretName = (typeof SECRET_NAMES)[number];
 
 const dir = () => {

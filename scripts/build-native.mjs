@@ -11,6 +11,17 @@ const out = join(root, "resources", "bin");
 
 const HELPERS = {
   "vd-input": { sources: ["native/vd-input/vd-input.c"], libs: ["user32.lib"] },
+  "vd-audio": {
+    sources: [
+      "native/vd-audio/vd-audio.c",
+      ...["mdf.c", "preprocess.c", "fftwrap.c", "kiss_fft.c", "kiss_fftr.c", "filterbank.c", "resample.c"].map(
+        (f) => `native/third_party/speexdsp/libspeexdsp/${f}`,
+      ),
+    ],
+    defines: ["FLOATING_POINT", "USE_KISS_FFT", "EXPORT="],
+    includes: ["native/third_party/speexdsp/include"],
+    libs: ["ole32.lib", "user32.lib"],
+  },
 };
 
 function findVcvars() {
@@ -43,7 +54,8 @@ for (const name of names) {
   mkdirSync(objDir, { recursive: true });
   const cmd = [
     `call "${vcvars}" >nul`,
-    `cl /nologo /O2 /W3 /utf-8 /D_CRT_SECURE_NO_WARNINGS /Fo"${objDir}\\\\" ${srcs.map((s) => `"${s}"`).join(" ")} ` +
+    `cl /nologo /O2 /W3 /utf-8 /D_CRT_SECURE_NO_WARNINGS ${(h.defines ?? []).map((d) => `/D${d}`).join(" ")} ` +
+      `${(h.includes ?? []).map((i) => `/I"${join(root, i)}"`).join(" ")} /Fo"${objDir}\\\\" ${srcs.map((s) => `"${s}"`).join(" ")} ` +
       `/link /OUT:"${exe}" ${h.libs.join(" ")}`,
   ].join(" && ");
   const bat = join(tmpdir(), `vd-build-${name}.bat`);

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DictationRecord } from "@shared/types";
 import { Badge, Button, Input } from "../components/ui";
+import { useNav } from "../nav";
 
 export function HistoryPage() {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<DictationRecord[]>([]);
   const [showRaw, setShowRaw] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const nav = useNav();
 
   const load = useCallback(() => {
     void window.vd.invoke("history:list", { query, limit: 200 }).then(setItems);
@@ -27,7 +29,7 @@ export function HistoryPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-lg font-semibold">History</h1>
+        <h1 className="text-lg font-semibold">Dictations</h1>
         <Button variant="primary" onClick={() => void window.vd.invoke("dictation:toggle")}>
           Start / stop dictation
         </Button>
@@ -64,6 +66,9 @@ export function HistoryPage() {
                   </Button>
                   <Button variant="ghost" className="h-7 px-2" onClick={() => void copy(d.id, raw ? "raw" : "clean")}>
                     {copied === d.id + (raw ? "raw" : "clean") ? "Copied" : "Copy"}
+                  </Button>
+                  <Button variant="ghost" className="h-7 px-2" onClick={() => void window.vd.invoke("history:toNote", d.id).then((n) => nav({ tab: "notes", noteId: n.id }))}>
+                    Make note
                   </Button>
                   <Button variant="ghost" className="h-7 px-2" onClick={() => void window.vd.invoke("history:delete", d.id)} aria-label="Delete">
                     Delete

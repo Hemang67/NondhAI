@@ -6,6 +6,8 @@
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  /** Base64 PNG images attached to a user message (vision-capable cloud models only). */
+  images?: string[];
 }
 
 export interface CleanupPromptOptions {

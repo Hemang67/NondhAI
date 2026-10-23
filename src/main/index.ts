@@ -1,20 +1,39 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Tray } from "electron";
+import { app, BrowserWindow, Menu, nativeImage, protocol, Tray } from "electron";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import type { InvokeMap } from "@shared/ipc";
 import type { PillState } from "@shared/types";
 import { buildCleanupMessages } from "@shared/cleanup/llmCleanup";
 import { SettingsStore } from "./settingsStore";
 import { modelsDir as resolveModelsDir, userDataPath } from "./paths";
 import { Store } from "./storage/store";
-import { getSecret, hasSecret, setSecret, SECRET_NAMES, type SecretName } from "./secrets";
+import { MeetingRepo, PeopleRepo } from "./storage/meetings";
+import { NotesRepo } from "./storage/notes";
+import { getSecret, hasSecret, type SecretName } from "./secrets";
 import { InputHelper } from "./native/inputHelper";
 import { SpeechService } from "./speech/speechService";
 import { LlamaServer } from "./llm/llamaServer";
 import { LlmClient } from "./llm/llm";
 import { ModelManager } from "./models/modelManager";
 import { DictationController } from "./dictation/dictationController";
-import { createPanelWindow, createPillWindow, showPill } from "./windows";
+import { MeetingService } from "./meeting/meetingService";
+import { MeetingDetector } from "./meeting/meetingDetector";
+import { readAudio } from "./meeting/audioFiles";
+import { SearchService } from "./search/searchService";
+import { AssistantService } from "./assistant/assistantService";
+import { CalendarService } from "./calendar/calendarService";
+import { ApiServer } from "./api/apiServer";
+import { registerApiRoutes } from "./api/routes";
+import { registerIpc, type AppContext } from "./ipc";
+import {
+  createAssistantWindow,
+  createMeetingWindow,
+  createPanelWindow,
+  createPillWindow,
+  createRecIndicator,
+  createToastWindow,
+  resourcePath,
+  showPill,
+} from "./windows";
 import { log } from "./log";
 
 const HIDDEN_FLAG = "--hidden";
@@ -27,47 +46,54 @@ if (process.env.NONDH_FAKE_MIC) {
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
   app.commandLine.appendSwitch("use-file-for-fake-audio-capture", process.env.NONDH_FAKE_MIC);
 }
+// NONDH_DEBUG_PORT=<port> lets test scripts drive the UI over the Chrome DevTools protocol
+// (localhost only). Never set in normal use.
+if (process.env.NONDH_DEBUG_PORT) {
+  app.commandLine.appendSwitch("remote-debugging-port", process.env.NONDH_DEBUG_PORT);
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+}
+
+protocol.registerSchemesAsPrivileged([{ scheme: "vd-audio", privileges: { stream: true, supportFetchAPI: true, bypassCSP: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => openPanel());
+  app.on("second-instance", () => windows.openPanel());
   app.setAppUserModelId("com.nondh.app");
   void app.whenReady().then(main);
 }
 
-let panel: BrowserWindow | null = null;
-let pill: BrowserWindow;
-let tray: Tray;
 let quitting = false;
+let tray: Tray;
 
-function resource(name: string): string {
-  return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), "resources", name);
-}
-
-function openPanel(): void {
-  if (panel && !panel.isDestroyed()) {
-    if (panel.isMinimized()) panel.restore();
-    panel.show();
-    panel.focus();
-    return;
-  }
-  panel = createPanelWindow();
-  panel.on("close", (e) => {
-    // Closing the window keeps the app in the tray.
-    if (!quitting) {
-      e.preventDefault();
-      panel?.hide();
+/** Lazily created windows; each is reused while it exists. */
+const windows = {
+  panel: null as BrowserWindow | null,
+  meeting: null as BrowserWindow | null,
+  rec: null as BrowserWindow | null,
+  toast: null as BrowserWindow | null,
+  assistant: null as BrowserWindow | null,
+  openPanel(): void {
+    const w = this.panel;
+    if (w && !w.isDestroyed()) {
+      if (w.isMinimized()) w.restore();
+      w.show();
+      w.focus();
+      return;
     }
-  });
-}
+    this.panel = createPanelWindow();
+    this.panel.on("close", (e) => {
+      // Closing the window keeps the app in the tray.
+      if (!quitting) {
+        e.preventDefault();
+        this.panel?.hide();
+      }
+    });
+  },
+};
 
 function broadcast(channel: string, ...args: unknown[]): void {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, ...args);
-}
-
-function handle<K extends keyof InvokeMap>(channel: K, fn: (...args: InvokeMap[K][0]) => InvokeMap[K][1] | Promise<InvokeMap[K][1]>): void {
-  ipcMain.handle(channel, (_e, ...args) => fn(...(args as InvokeMap[K][0])));
 }
 
 function applyLoginItem(enabled: boolean): void {
@@ -78,34 +104,40 @@ function applyLoginItem(enabled: boolean): void {
 async function main(): Promise<void> {
   const settings = new SettingsStore();
   const modelsDir = () => resolveModelsDir(settings.get().modelsDir);
-  const dbKey = getSecret("db-key");
+  const dbKey = settings.get().privacy.encryptDatabase ? getSecret("db-key") : null;
   const store = new Store(userDataPath("nondh.db"), { key: dbKey ?? undefined });
+  const meetings = new MeetingRepo(store.db);
+  const people = new PeopleRepo(store.db);
+  const notes = new NotesRepo(store.db);
   const input = new InputHelper(process.env.NONDH_E2E === "1" ? ["--accept-injected"] : []);
   const speech = new SpeechService(() => settings.get(), modelsDir);
-  const llama = new LlamaServer();
+  const llama = new LlamaServer("chat");
+  const embedServer = new LlamaServer("embedding");
   const llm = new LlmClient(llama, () => settings.get(), modelsDir);
   const models = new ModelManager(modelsDir);
-  models.on("progress", () => broadcast("models:changed"));
+  const calendar = new CalendarService(() => settings.get());
+  const search = new SearchService({ embedServer, modelsDir, notes, meetings, store });
 
-  pill = createPillWindow();
-  const pending = new Map<string, { started?: (err: string | null) => void; stopped?: () => void }>();
+  const llmAvailable = (provider: string) => {
+    if (provider === "local") return existsSync(join(modelsDir(), "llm", settings.get().llm.localModel));
+    if (provider === "custom") return !!settings.get().llm.customBaseUrl;
+    return hasSecret(provider as SecretName);
+  };
 
+  const pill = createPillWindow();
   const setPill = (s: PillState) => {
-    if (!settings.get().ui.showPill && s.kind !== "error") {
-      pill.webContents.send("pill:state", s);
-    } else {
-      showPill(pill, s);
-    }
-    tray?.setImage(resource(s.kind === "listening" ? "tray-recording.png" : "tray.png"));
+    if (!settings.get().ui.showPill && s.kind !== "error") pill.webContents.send("pill:state", s);
+    else showPill(pill, s);
+    updateTray();
   };
 
-  const llmAvailable = () => {
-    const s = settings.get();
-    const t = s.cleanup.llm;
-    if (t.provider === "local") return existsSync(join(modelsDir(), "llm", s.llm.localModel));
-    return hasSecret(t.provider as SecretName);
+  const assistantWindow = () => {
+    if (!windows.assistant || windows.assistant.isDestroyed()) windows.assistant = createAssistantWindow();
+    return windows.assistant;
   };
+  const assistant = new AssistantService({ settings: () => settings.get(), input, llm, llmAvailable, window: assistantWindow });
 
+  const pending = new Map<string, { started?: (err: string | null) => void; stopped?: () => void }>();
   const dictation = new DictationController({
     settings: () => settings.get(),
     input,
@@ -113,8 +145,9 @@ async function main(): Promise<void> {
     llm,
     store,
     setPill,
-    llmAvailable,
+    llmAvailable: () => llmAvailable(settings.get().cleanup.llm.provider),
     onDictation: () => broadcast("history:changed"),
+    assistant,
     recorder: {
       start: (id) =>
         new Promise<void>((resolve, reject) => {
@@ -142,55 +175,127 @@ async function main(): Promise<void> {
     },
   });
 
-  ipcMain.on("recorder:chunk", (_e, id: string, samples: Float32Array) => dictation.onAudio(id, samples));
-  ipcMain.on("recorder:started", (_e, id: string, err: string | null) => pending.get(id)?.started?.(err));
-  ipcMain.on("recorder:stopped", (_e, id: string) => {
-    pending.get(id)?.stopped?.();
-    pending.delete(id);
+  const meetingService = new MeetingService({ settings: () => settings.get(), speech, meetings, people, llm, llmAvailable });
+  const detector = new MeetingDetector(process.execPath);
+
+  // ---- meeting windows and indicator ----
+  const showToast = (info: { kind: "detected" | "ended"; app: string }) => {
+    if (!windows.toast || windows.toast.isDestroyed()) windows.toast = createToastWindow();
+    const t = windows.toast;
+    const send = () => {
+      t.webContents.send("toast:show", info);
+      t.showInactive();
+    };
+    if (t.webContents.isLoading()) t.webContents.once("did-finish-load", send);
+    else send();
+  };
+  let detectedApp: string | null = null;
+  detector.on("started", (appName: string) => {
+    if (meetingService.recording || !settings.get().meetings.autoDetect) return;
+    detectedApp = appName;
+    showToast({ kind: "detected", app: appName });
+  });
+  detector.on("ended", (appName: string) => {
+    if (meetingService.recording) showToast({ kind: "ended", app: appName });
+  });
+
+  const startMeeting = async (opts: { kind: "call" | "room"; title?: string; sourceApp?: string | null }) => {
+    const ev = await calendar.current().catch(() => null);
+    const state = await meetingService.start({ ...opts, title: opts.title || ev?.title });
+    if (ev) meetings.update(state.id, { attendees: ev.attendees, calendarEventId: ev.id });
+    return state;
+  };
+  meetingService.on("state", (state) => {
+    broadcast("meeting:state", state);
+    updateTray();
+    if (state) {
+      if (!windows.rec || windows.rec.isDestroyed()) windows.rec = createRecIndicator();
+      if (!windows.meeting || windows.meeting.isDestroyed()) windows.meeting = createMeetingWindow();
+    } else {
+      // The indicator only goes away once recording has really stopped.
+      windows.rec?.destroy();
+      windows.rec = null;
+    }
+  });
+  meetingService.on("line", (id: string, line: unknown) => broadcast("meeting:line", id, line));
+  meetingService.on("level", (mic: number, sys: number) => {
+    windows.meeting?.webContents.send("meeting:level", mic, sys);
+    windows.rec?.webContents.send("meeting:level", mic, sys);
+  });
+  meetingService.on("progress", (id: string, text: string) => broadcast("meeting:progress", id, text));
+  meetingService.on("changed", () => {
+    broadcast("meetings:changed");
+    void search.reindex();
+  });
+  meetingService.on("error", (msg: string) => broadcast("meeting:progress", meetingService.recording?.id ?? "", `Audio error: ${msg}`));
+
+  // ---- audio playback protocol (decrypts encrypted recordings in memory) ----
+  protocol.handle("vd-audio", (req) => {
+    const id = new URL(req.url).hostname;
+    const m = meetings.get(id);
+    if (!m?.audioFile) return new Response("not found", { status: 404 });
+    try {
+      return new Response(readAudio(join(m.dir, m.audioFile)), { headers: { "content-type": "audio/ogg" } });
+    } catch (err) {
+      log.error("audio read failed", err);
+      return new Response("error", { status: 500 });
+    }
   });
 
   // ---- IPC ----
-  handle("settings:get", () => settings.get());
-  handle("settings:update", (patch) => settings.update(patch));
-  handle("secrets:status", () => Object.fromEntries(SECRET_NAMES.filter((n) => n !== "db-key").map((n) => [n, hasSecret(n)])));
-  handle("secrets:set", (name, value) => {
-    if (!SECRET_NAMES.includes(name as SecretName) || name === "db-key") throw new Error("unknown secret");
-    setSecret(name as SecretName, value.trim());
-  });
-  handle("history:list", (opts) => store.listDictations(opts));
-  handle("history:delete", (id) => {
-    store.deleteDictation(id);
-    broadcast("history:changed");
-  });
-  handle("history:copy", async (id, which) => {
-    const d = store.getDictation(id);
-    if (d) await clipboard.writeText(which === "raw" ? d.rawText : d.cleanText);
-  });
-  handle("dictionary:list", () => store.listDictionary());
-  handle("dictionary:upsert", (row) => store.upsertDictionary(row));
-  handle("dictionary:delete", (id) => store.deleteDictionary(id));
-  handle("models:list", () => models.list());
-  handle("models:download", (id) =>
-    models.download(id).catch((err) => {
-      log.error("download failed", id, err);
-      throw err;
-    }),
-  );
-  handle("models:cancel", (id) => models.cancel(id));
-  handle("models:delete", (id) => models.delete(id));
-  handle("app:info", () => ({ version: app.getVersion(), modelsDir: modelsDir(), userData: app.getPath("userData") }));
-  handle("app:pickModelsDir", async () => {
-    const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
-    return r.canceled ? null : (r.filePaths[0] ?? null);
-  });
-  handle("dictation:toggle", () => dictation.toggleFromUi());
+  const ctx: AppContext = {
+    settings,
+    store,
+    meetings,
+    people,
+    notes,
+    speech,
+    llm,
+    llmAvailable,
+    models,
+    search,
+    meetingService,
+    calendar,
+    assistant,
+    dictation,
+    broadcast,
+    startMeeting,
+    windows,
+    toastAction: (action) => {
+      windows.toast?.hide();
+      if (action === "record") void startMeeting({ kind: "call", sourceApp: detectedApp });
+      if (action === "stop") void meetingService.stop();
+    },
+    modelsDir,
+    onRecorderChunk: (id, samples) => dictation.onAudio(id, samples),
+    onRecorderStarted: (id, err) => pending.get(id)?.started?.(err),
+    onRecorderStopped: (id) => {
+      pending.get(id)?.stopped?.();
+      pending.delete(id);
+    },
+  };
+  registerIpc(ctx);
+  models.on("progress", () => broadcast("models:changed"));
+
+  // ---- local API ----
+  const api = new ApiServer();
+  registerApiRoutes(api, ctx);
+  const applyApi = async () => {
+    const s = settings.get().api;
+    if (s.enabled) await api.start(s.port).catch((e) => log.error("local API failed to start", e));
+    else api.stop();
+  };
 
   // ---- settings side effects ----
   const bindHotkeys = () => {
     const h = settings.get().hotkeys;
-    // The assistant chord is wired up in Phase 3; meeting in Phase 2.
-    input.setBindings({ dictate: h.dictate, translate: h.translate });
+    input.setBindings({ dictate: h.dictate, translate: h.translate, assistant: h.assistant, meeting: h.meeting });
   };
+  input.on("chord", (kind: string, name: string) => {
+    if (name !== "meeting" || kind !== "down") return;
+    if (meetingService.recording) void meetingService.stop();
+    else void startMeeting({ kind: "call" });
+  });
   settings.on("change", (next, prev) => {
     if (JSON.stringify(next.hotkeys) !== JSON.stringify(prev.hotkeys)) bindHotkeys();
     if (
@@ -204,58 +309,93 @@ async function main(): Promise<void> {
     }
     if (next.llm.localModel !== prev.llm.localModel || next.llm.localGpu !== prev.llm.localGpu) llama.stop();
     if (next.launchAtLogin !== prev.launchAtLogin) applyLoginItem(next.launchAtLogin);
+    if (next.meetings.autoDetect !== prev.meetings.autoDetect) {
+      if (next.meetings.autoDetect) detector.start();
+      else detector.stop();
+    }
+    if (JSON.stringify(next.api) !== JSON.stringify(prev.api)) void applyApi();
   });
 
   // ---- tray ----
-  tray = new Tray(nativeImage.createFromPath(resource("tray.png")));
+  tray = new Tray(nativeImage.createFromPath(resourcePath("tray.png")));
   tray.setToolTip("Nondh AI");
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: "Open Nondh AI", click: openPanel },
-      { label: "Start / stop dictation", click: () => dictation.toggleFromUi() },
-      { type: "separator" },
-      {
-        label: "Quit",
-        click: () => {
-          quitting = true;
-          app.quit();
+  tray.on("click", () => windows.openPanel());
+  function updateTray(): void {
+    const recording = !!meetingService.recording;
+    tray.setImage(resourcePath(recording ? "tray-recording.png" : "tray.png"));
+    tray.setToolTip(recording ? "Nondh AI — recording a meeting" : "Nondh AI");
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: "Open Nondh AI", click: () => windows.openPanel() },
+        { label: "Start / stop dictation", click: () => dictation.toggleFromUi() },
+        { type: "separator" },
+        recording
+          ? { label: "Stop recording meeting", click: () => void meetingService.stop() }
+          : { label: "Record a call", click: () => void startMeeting({ kind: "call" }) },
+        ...(recording ? [] : [{ label: "Record an in-person meeting", click: () => void startMeeting({ kind: "room" }) }]),
+        { type: "separator" },
+        {
+          label: "Quit",
+          click: () => {
+            quitting = true;
+            app.quit();
+          },
         },
-      },
-    ]),
-  );
-  tray.on("click", openPanel);
+      ]),
+    );
+  }
+  updateTray();
 
   input.start();
   bindHotkeys();
   applyLoginItem(settings.get().launchAtLogin);
+  void applyApi();
+  if (settings.get().meetings.autoDetect) detector.start();
 
-  app.on("before-quit", () => {
+  let stopping = false;
+  app.on("before-quit", (e) => {
     quitting = true;
+    if (meetingService.recording && !stopping) {
+      // Finish writing the recording before exiting; processing resumes at next start.
+      e.preventDefault();
+      stopping = true;
+      void meetingService.stop().finally(() => app.quit());
+      return;
+    }
     input.stop();
+    detector.stop();
     speech.stop();
     llama.stop();
+    embedServer.stop();
+    api.stop();
     store.close();
   });
   app.on("window-all-closed", () => {
     // Stay resident in the tray.
   });
 
-  if (!process.argv.includes(HIDDEN_FLAG)) openPanel();
+  if (!process.argv.includes(HIDDEN_FLAG)) windows.openPanel();
 
-  // Warm models in the background so the first dictation is fast.
+  // Background start-up work: models, warm-up, crash recovery, retention, search index.
   void (async () => {
     try {
       await models.ensureRequired();
       await speech.warm();
       log.info("speech engine ready");
-      if (settings.get().cleanup.llm.provider === "local" && llmAvailable()) {
+      meetingService.recover();
+      meetingService.applyRetention();
+      setInterval(() => meetingService.applyRetention(), 6 * 3600 * 1000);
+      if (settings.get().cleanup.llm.provider === "local" && llmAvailable("local")) {
         const s = settings.get();
         await llama.ensure(join(modelsDir(), "llm", s.llm.localModel), s.llm.localGpu);
         // Process the fixed cleanup prompt once so later calls only pay for the new words.
         const t0 = Date.now();
-        await llm.chat({ provider: "local", model: "" }, buildCleanupMessages("Warm up.", { terms: store.listDictionary().map((d) => d.term) }), { maxTokens: 1 });
+        const terms = store.listDictionary().map((d) => d.term);
+        await llm.chat({ provider: "local", model: "" }, buildCleanupMessages("Warm up.", { terms }), { maxTokens: 1 });
         log.info(`cleanup prompt cached in ${Date.now() - t0} ms`);
       }
+      await search.reindex();
+      setInterval(() => void search.reindex(), 10 * 60 * 1000);
     } catch (err) {
       log.error("warm-up failed", err);
     }

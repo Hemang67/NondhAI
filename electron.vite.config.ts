@@ -14,6 +14,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
           speechWorker: resolve(__dirname, "src/main/speech/speechWorker.ts"),
+          mcp: resolve(__dirname, "src/mcp/server.ts"),
         },
       },
     },

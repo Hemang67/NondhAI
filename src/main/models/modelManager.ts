@@ -34,10 +34,12 @@ export class ModelManager extends EventEmitter {
     });
   }
 
-  /** Make sure required models (VAD) are present. */
+  /** Small models every feature depends on (VAD, speaker models, search embeddings): ~60 MB. */
   async ensureRequired(): Promise<void> {
-    const vad = modelDef("silero-vad")!;
-    if (!isInstalled(this.modelsDir(), vad)) await this.download(vad.id);
+    for (const id of ["silero-vad", "pyannote-segmentation-3.0", "campplus-speaker-embedding", "bge-small-embedding"]) {
+      const m = modelDef(id)!;
+      if (!isInstalled(this.modelsDir(), m)) await this.download(id);
+    }
   }
 
   async download(id: string): Promise<void> {
