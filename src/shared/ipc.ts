@@ -99,6 +99,9 @@ export interface InvokeMap {
   "calendar:connect": [[provider: "google" | "microsoft"], void];
   "calendar:disconnect": [[provider: "google" | "microsoft"], void];
   "calendar:upcoming": [[], Array<{ id: string; title: string; start: number; end: number; attendees: string[]; provider: string }>];
+  "updates:status": [[], { state: string; version?: string; error?: string }];
+  "updates:check": [[], void];
+  "updates:install": [[], void];
 }
 
 /** main → renderer events */
@@ -117,6 +120,7 @@ export interface EventMap {
   "notes:changed": [];
   "toast:show": [info: { kind: "detected" | "ended"; app: string }];
   "assistant:state": [AssistantState];
+  "updates:status": [{ state: string; version?: string; error?: string }];
 }
 
 /** renderer → main fire-and-forget */
@@ -143,11 +147,12 @@ export const INVOKE_CHANNELS = [
   "folders:list", "folders:create", "folders:rename", "folders:delete", "search:query",
   "assistant:paste", "assistant:close",
   "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming",
+  "updates:status", "updates:check", "updates:install",
 ] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
   "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",
   "meeting:state", "meeting:line", "meeting:level", "meeting:progress", "meetings:changed", "people:changed",
-  "notes:changed", "toast:show", "assistant:state",
+  "notes:changed", "toast:show", "assistant:state", "updates:status",
 ] as const satisfies Keys<EventMap>;
 export const SEND_CHANNELS = ["recorder:chunk", "recorder:started", "recorder:stopped"] as const satisfies Keys<SendMap>;
 

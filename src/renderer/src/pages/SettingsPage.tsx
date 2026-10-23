@@ -168,6 +168,8 @@ export function SettingsPage() {
       <IntegrationsCard s={s} info={info} update={update} />
       <PrivacyCard s={s} onChange={() => void window.vd.invoke("settings:get").then(setS)} />
 
+      <UpdatesCard s={s} update={update} />
+
       <Card title="General">
         <Row label="Start with Windows" hint="Starts hidden in the tray (installed app).">
           <Switch label="Start with Windows" checked={s.launchAtLogin} onChange={(v) => void update({ launchAtLogin: v })} />
@@ -339,6 +341,39 @@ function PrivacyCard({ s, onChange }: { s: Settings; onChange: () => void }) {
         >
           Delete everything
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+function UpdatesCard({ s, update }: { s: Settings; update: (p: unknown) => Promise<void> }) {
+  const [st, setSt] = useState<{ state: string; version?: string; error?: string }>({ state: "off" });
+  useEffect(() => {
+    void window.vd.invoke("updates:status").then(setSt);
+    return window.vd.on("updates:status", setSt);
+  }, []);
+  const label: Record<string, string> = {
+    off: "Automatic updates are off.",
+    idle: "Waiting to check.",
+    checking: "Checking…",
+    none: "You're up to date.",
+    downloading: `Downloading ${st.version ?? ""}…`,
+    ready: `Version ${st.version} is ready.`,
+    error: `Update check failed: ${st.error ?? ""}`,
+  };
+  return (
+    <Card title="Updates" description="Point Nondh AI at a folder or web address where you put new builds (latest.yml + the installer). Updates download in the background and install on restart.">
+      <Row label="Update source" hint="e.g. D:\Nondh AI-releases or https://example.com/nondh">
+        <Input defaultValue={s.updates.feedUrl} onBlur={(e) => void update({ updates: { feedUrl: e.target.value.trim() } })} />
+      </Row>
+      <div className="flex items-center gap-2 pt-2 text-sm">
+        <span className="text-fg-muted">{label[st.state] ?? st.state}</span>
+        {st.state !== "off" && <Button onClick={() => void window.vd.invoke("updates:check")}>Check now</Button>}
+        {st.state === "ready" && (
+          <Button variant="primary" onClick={() => void window.vd.invoke("updates:install")}>
+            Restart and update
+          </Button>
+        )}
       </div>
     </Card>
   );

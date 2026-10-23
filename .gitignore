@@ -11,3 +11,4 @@ native/**/build/
 docs/evidence/**/*.wav
 docs/evidence/**/*.opus
 *.tsbuildinfo
+release/builder-debug.yml

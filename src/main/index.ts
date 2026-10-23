@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Menu, nativeImage, protocol, Tray } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, Tray } from "electron";
+import { Updater } from "./updater";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { PillState } from "@shared/types";
@@ -277,6 +278,13 @@ async function main(): Promise<void> {
   registerIpc(ctx);
   models.on("progress", () => broadcast("models:changed"));
 
+  // ---- updates ----
+  const updater = new Updater((s) => broadcast("updates:status", s));
+  ipcMain.handle("updates:status", () => updater.status);
+  ipcMain.handle("updates:check", () => updater.check());
+  ipcMain.handle("updates:install", () => updater.installNow());
+  updater.configure(settings.get().updates.feedUrl);
+
   // ---- local API ----
   const api = new ApiServer();
   registerApiRoutes(api, ctx);
@@ -314,6 +322,7 @@ async function main(): Promise<void> {
       else detector.stop();
     }
     if (JSON.stringify(next.api) !== JSON.stringify(prev.api)) void applyApi();
+    if (next.updates.feedUrl !== prev.updates.feedUrl) updater.configure(next.updates.feedUrl);
   });
 
   // ---- tray ----

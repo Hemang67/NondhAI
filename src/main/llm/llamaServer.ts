@@ -66,11 +66,12 @@ export class LlamaServer {
 
   private async launch(modelFile: string, gpu: boolean): Promise<string> {
     if (!existsSync(modelFile)) throw new Error(`LLM model not found: ${modelFile}`);
-    const dir = binPath(gpu ? "llama-vulkan" : "llama-cpu");
+    // One llama.cpp build (Vulkan) carries the CPU backends too; CPU mode just offloads no layers.
+    const dir = binPath("llama");
     this.port = await freePort();
     const args =
       this.mode === "embedding"
-        ? ["-m", modelFile, "--host", "127.0.0.1", "--port", String(this.port), "--embedding", "--pooling", "cls", "-c", "512", "-b", "512", "-ub", "512", "-t", "4", "--no-webui"]
+        ? ["-m", modelFile, "--host", "127.0.0.1", "--port", String(this.port), "--embedding", "--pooling", "cls", "-c", "512", "-b", "512", "-ub", "512", "-ngl", "0", "-t", "4", "--no-webui"]
         : [
             "-m", modelFile,
             "--host", "127.0.0.1",
@@ -78,7 +79,7 @@ export class LlamaServer {
             "-c", "8192",
             "-np", "1", // one slot, so the shared cleanup prompt prefix stays cached between calls
             "--no-webui",
-            ...(gpu ? ["-ngl", "99"] : ["-t", "8"]),
+            ...(gpu ? ["-ngl", "99"] : ["-ngl", "0", "-t", "8"]),
           ];
     const t0 = Date.now();
     // Server output goes to a log file for troubleshooting.

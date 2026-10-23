@@ -1,0 +1,53 @@
+appId: com.nondh.app
+productName: Nondh AI
+copyright: Copyright © 2026 Hemang Rathod
+# Prebuilt N-API binaries (SQLite, sherpa-onnx) already load in Electron; no source rebuild.
+npmRebuild: false
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+# Native addons and the ffmpeg binary must live outside app.asar to be loadable/executable.
+asarUnpack:
+  - node_modules/sherpa-onnx-*/**
+  - node_modules/better-sqlite3-multiple-ciphers/**
+  - node_modules/ffmpeg-static/**
+extraResources:
+  - from: resources/bin/llama
+    to: bin/llama
+    filter: ["*.dll", "llama-server.exe", "LICENSE*"]
+  - from: resources/bin/whisper/Release
+    to: bin/whisper/Release
+    filter: ["*.dll", "whisper-server.exe"]
+  - from: resources/bin
+    to: bin
+    filter: ["vd-input.exe", "vd-audio.exe"]
+  - from: resources
+    to: .
+    filter: ["icon.ico", "icon.png", "tray.png", "tray-recording.png"]
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.ico
+  executableName: Nondh AI
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Nondh AI
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: Nondh AI-Setup-${version}.${ext}
+# The app sets the real feed URL at runtime (Settings → Updates); this only makes the build
+# emit latest.yml so a folder or web server can serve updates.
+publish:
+  - provider: generic
+    url: https://updates.invalid/nondh
