@@ -1,5 +1,3 @@
-// First: moves the data folder over from the app's old name before anything writes to the new one.
-import { fixLegacyPaths, renameLegacyFolders } from "./legacyData";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } from "electron";
 import { Updater } from "./updater";
 import { dirname, join } from "node:path";
@@ -8,7 +6,7 @@ import type { MeetingRecord, PillState } from "@shared/types";
 import { buildCleanupMessages } from "@shared/cleanup/llmCleanup";
 import { SettingsStore } from "./settingsStore";
 import { modelsDir as resolveModelsDir, userDataPath } from "./paths";
-import { Store } from "./storage/store";
+import { adoptEarlierDatabase, Store } from "./storage/store";
 import { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
 import { ScreenRecorder } from "./screen/screenRecorder";
 import { MediaServer } from "./mediaServer";
@@ -119,12 +117,10 @@ async function main(): Promise<void> {
   const mediaBase = { url: "" };
   ipcMain.on("media:base", (e) => (e.returnValue = mediaBase.url));
   const settings = new SettingsStore();
-  // Before anything opens the models or recordings folders.
-  const renamedFolders = renameLegacyFolders(settings);
   const modelsDir = () => resolveModelsDir(settings.get().modelsDir);
   const dbKey = settings.get().privacy.encryptDatabase ? getSecret("db-key") : null;
+  adoptEarlierDatabase(userDataPath("nondh.db"));
   const store = new Store(userDataPath("nondh.db"), { key: dbKey ?? undefined });
-  fixLegacyPaths(store.db, settings, renamedFolders);
   const meetings = new MeetingRepo(store.db);
   const people = new PeopleRepo(store.db);
   const notes = new NotesRepo(store.db);

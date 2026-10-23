@@ -1,5 +1,7 @@
 import Database from "better-sqlite3-multiple-ciphers";
 import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync, readdirSync, readSync, renameSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { MIGRATIONS } from "./migrations";
 import type { DictationRecord, DictionaryRow, NewDictation } from "@shared/types";
 
@@ -7,6 +9,41 @@ import type { DictationRecord, DictionaryRow, NewDictation } from "@shared/types
  * SQLite store. Every user table has a UUID id plus created_at/updated_at/deleted_at so a
  * sync layer can be added later; deletes are soft and `purge*` methods remove rows for real.
  */
+/**
+ * Earlier versions stored the database under another file name. If `file` doesn't exist yet,
+ * adopt the earlier database in the same folder (with its -wal/-shm). It is recognized by its
+ * contents, not its name: an encrypted file (Chromium's own databases never are), or a plain one
+ * that has this app's meetings table.
+ */
+export function adoptEarlierDatabase(file: string): void {
+  if (existsSync(file)) return;
+  const dir = dirname(file);
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir).filter((f) => f.endsWith(".db") && f !== basename(file))) {
+    const path = join(dir, name);
+    const head = Buffer.alloc(16);
+    const fd = openSync(path, "r");
+    try {
+      readSync(fd, head, 0, 16, 0);
+    } finally {
+      closeSync(fd);
+    }
+    if (head.toString("latin1") === "SQLite format 3\0") {
+      let ours = false;
+      try {
+        const db = new Database(path, { readonly: true, fileMustExist: true });
+        ours = !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meetings'`).get();
+        db.close();
+      } catch {
+        /* not readable as plain SQLite */
+      }
+      if (!ours) continue;
+    }
+    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) renameSync(path + suffix, file + suffix);
+    return;
+  }
+}
+
 export class Store {
   readonly db: Database.Database;
 
