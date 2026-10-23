@@ -265,6 +265,7 @@ async function main(): Promise<void> {
   meetingService.on("error", (msg: string) => broadcast("meeting:progress", meetingService.recording?.id ?? "", `Audio error: ${msg}`));
 
   // ---- audio playback protocol (decrypts encrypted recordings in memory) ----
+  let mediaCache: { path: string; data: Buffer } | null = null;
   // vd-audio://<meetingId> → the meeting audio; vd-audio://<meetingId>/<clipId> → a screen clip.
   protocol.handle("vd-audio", (req) => {
     const url = new URL(req.url);
@@ -274,7 +275,29 @@ async function main(): Promise<void> {
     const file = clipId ? (clip?.meetingId === m?.id ? clip?.file : null) : m?.audioFile;
     if (!m || !file) return new Response("not found", { status: 404 });
     try {
-      return new Response(readAudio(join(m.dir, file)), { headers: { "content-type": clipId ? "video/webm" : "audio/ogg" } });
+      const path = join(m.dir, file);
+      // Decrypting is the slow part; keep the last file in memory so seeking doesn't redo it.
+      if (mediaCache?.path !== path) mediaCache = { path, data: readAudio(path) };
+      const data = mediaCache.data;
+      const type = clipId ? "video/webm" : "audio/ogg";
+      // Players seek with byte-range requests; answer them so clips and audio can be scrubbed.
+      const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get("range") ?? "");
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? Number(range[1]) : Math.max(0, data.length - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), data.length - 1) : data.length - 1;
+        if (start >= data.length) return new Response(null, { status: 416, headers: { "content-range": `bytes */${data.length}` } });
+        // A standalone copy: a view into the larger buffer can be served with the wrong bytes.
+        return new Response(new Uint8Array(data.subarray(start, end + 1)), {
+          status: 206,
+          headers: {
+            "content-type": type,
+            "content-range": `bytes ${start}-${end}/${data.length}`,
+            "content-length": String(end - start + 1),
+            "accept-ranges": "bytes",
+          },
+        });
+      }
+      return new Response(new Uint8Array(data), { headers: { "content-type": type, "content-length": String(data.length), "accept-ranges": "bytes" } });
     } catch (err) {
       log.error("audio read failed", err);
       return new Response("error", { status: 500 });

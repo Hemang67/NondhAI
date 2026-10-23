@@ -484,24 +484,9 @@ const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region" 
  */
 function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: ClipRecord[]; audio: React.RefObject<HTMLAudioElement | null> }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [src, setSrc] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let url: string | null = null;
-    // Load into a blob so the player can seek freely.
-    void fetch(`vd-audio://${meetingId}/${open}`)
-      .then((r) => r.blob())
-      .then((b) => {
-        url = URL.createObjectURL(b);
-        setSrc(url);
-      });
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-      setSrc(null);
-    };
-  }, [open, meetingId]);
+  // Served by the app's vd-audio:// handler, which supports byte ranges for seeking.
+  const src = open ? `vd-audio://${meetingId}/${open}` : undefined;
 
   const clip = clips.find((c) => c.id === open);
   const sync = () => {
@@ -540,7 +525,7 @@ function ScreenClips({ meetingId, clips, audio }: { meetingId: string; clips: Cl
       {open && (
         <video
           ref={video}
-          src={src ?? undefined}
+          src={src}
           controls
           className="mt-3 w-full rounded bg-black"
           onPlay={sync}
