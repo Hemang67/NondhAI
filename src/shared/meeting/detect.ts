@@ -78,7 +78,7 @@ export function friendlyAppName(key: string): string {
  *  - known meeting apps → their name;
  *  - browsers → the meeting site from a window title, else the browser name ("anyApp" only);
  *  - any other app → its name ("anyApp" only).
- * Nondh AI's own processes never count.
+ * The app's own processes never count.
  */
 export function classifyMicUser(
   key: string,

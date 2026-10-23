@@ -6,7 +6,7 @@ A personal, offline-first Windows desktop app for **dictation into any app** and
 
 | Topic | Decision |
 |---|---|
-| Name | Nondh AI |
+| Name | Nondh AI — tagline "Darek vaat ni nondh." |
 | Cloud LLM | Anthropic (summaries, Q&A, assistant). Others (OpenAI, Groq, Gemini, OpenRouter, any OpenAI-compatible) selectable. |
 | Dictation cleanup | Local small LLM via llama.cpp by default, so it works offline. Cloud optional. |
 | Speech-to-text | Local only by default. Cloud STT is opt-in per provider, with a visible "sent to cloud" marker. |

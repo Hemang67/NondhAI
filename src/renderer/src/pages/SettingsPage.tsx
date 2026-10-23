@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LlmProvider, LlmTarget, Settings } from "@shared/settings";
+import { APP_NAME, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { Badge, Button, Card, Input, Row, Select, Switch } from "../components/ui";
 
 const LLM_PROVIDERS: Array<[LlmProvider, string]> = [
@@ -44,7 +45,12 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold">Settings</h1>
+      <header>
+        <h1 className="text-lg font-semibold">Settings</h1>
+        <p className="text-sm text-fg-muted">
+          {APP_NAME} · <span className="italic">{TAGLINE}</span>
+        </p>
+      </header>
 
       <Card title="Speech to text">
         <Row label="Dictation engine" hint={sttCloud ? <CloudNote what="Your dictation audio" /> : "Runs on this computer. Meetings always transcribe locally."}>
@@ -192,8 +198,19 @@ export function SettingsPage() {
             Change…
           </Button>
         </Row>
-        <p className="pt-2 text-xs text-fg-muted">
-          Nondh AI {info?.version} · data in {info?.userData}
+      </Card>
+
+      <Card title="About">
+        <div className="flex items-center gap-4">
+          <img src="./icon.png" alt="" className="size-14 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-base font-semibold">{APP_NAME}</div>
+            <div className="text-sm italic">{TAGLINE}</div>
+            <div className="text-xs text-fg-muted">“{TAGLINE_MEANING}”</div>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-fg-muted">
+          Version {info?.version} · everything is stored on this computer, in {info?.userData}
         </p>
       </Card>
     </div>
@@ -368,7 +385,7 @@ function UpdatesCard({ s, update }: { s: Settings; update: (p: unknown) => Promi
   };
   return (
     <Card title="Updates" description="Point Nondh AI at a folder or web address where you put new builds (latest.yml + the installer). Updates download in the background and install on restart.">
-      <Row label="Update source" hint="e.g. D:\Nondh AI-releases or https://example.com/nondh">
+      <Row label="Update source" hint="e.g. D:\NondhAI-releases or https://example.com/nondh-ai">
         <Input defaultValue={s.updates.feedUrl} onBlur={(e) => void update({ updates: { feedUrl: e.target.value.trim() } })} />
       </Row>
       <div className="flex items-center gap-2 pt-2 text-sm">

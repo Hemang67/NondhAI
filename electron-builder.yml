@@ -1,4 +1,4 @@
-appId: com.nondh.app
+appId: com.nondh.ai
 productName: Nondh AI
 copyright: Copyright © 2026 Hemang Rathod
 # Prebuilt N-API binaries (SQLite, sherpa-onnx) already load in Electron; no source rebuild.
@@ -35,7 +35,7 @@ win:
     - target: nsis
       arch: [x64]
   icon: resources/icon.ico
-  executableName: Nondh AI
+  executableName: NondhAI
 nsis:
   oneClick: false
   perMachine: false
@@ -45,9 +45,11 @@ nsis:
   shortcutName: Nondh AI
   runAfterFinish: true
   deleteAppDataOnUninstall: false
-  artifactName: Nondh AI-Setup-${version}.${ext}
+  artifactName: NondhAI-Setup-${version}.${ext}
+  # Welcome page with the tagline (resources/installer.nsh).
+  include: resources/installer.nsh
 # The app sets the real feed URL at runtime (Settings → Updates); this only makes the build
 # emit latest.yml so a folder or web server can serve updates.
 publish:
   - provider: generic
-    url: https://updates.invalid/nondh
+    url: https://updates.invalid/nondh-ai

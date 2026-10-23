@@ -11,6 +11,7 @@ import type { ClipRepo, MeetingRepo } from "../storage/meetings";
 import { encryptFile, ffmpegPath } from "../meeting/audioFiles";
 import { createRegionWindow, createScreenRecorderWindow } from "../windows";
 import { log } from "../log";
+import { APP_NAME } from "@shared/brand";
 
 const run = promisify(execFile);
 
@@ -78,7 +79,7 @@ export class ScreenRecorder extends EventEmitter {
   async sources(): Promise<ScreenSource[]> {
     const all = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false });
     return all
-      .filter((s) => !/^Nondh AI\b/.test(s.name)) // never offer Nondh AI's own windows
+      .filter((s) => !s.name.startsWith(APP_NAME)) // never offer the app's own windows
       .map((s) => ({
         id: s.id,
         name: s.name,

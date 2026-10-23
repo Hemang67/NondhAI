@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RecordingState } from "@shared/ipc";
+import { APP_NAME, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { cx, Input } from "../components/ui";
 import { NavContext, type NavTarget, type Tab } from "../nav";
 import { HistoryPage } from "./HistoryPage";
@@ -40,7 +41,12 @@ export function Panel() {
         <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-line bg-panel p-3" aria-label="Sections">
           <div className="mb-3 flex items-center gap-2 px-2 pt-1">
             <img src="./icon.png" alt="" className="size-6" />
-            <span className="font-semibold">Nondh AI</span>
+            <div className="min-w-0 leading-tight">
+              <div className="font-semibold">{APP_NAME}</div>
+              <div className="truncate text-[11px] italic text-fg-muted" title={TAGLINE_MEANING}>
+                {TAGLINE}
+              </div>
+            </div>
           </div>
           <form
             className="mb-2"

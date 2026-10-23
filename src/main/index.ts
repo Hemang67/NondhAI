@@ -1,3 +1,5 @@
+// First: moves the data folder over from the app's old name before anything writes to the new one.
+import { fixLegacyPaths } from "./legacyData";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } from "electron";
 import { Updater } from "./updater";
 import { dirname, join } from "node:path";
@@ -10,6 +12,7 @@ import { Store } from "./storage/store";
 import { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
 import { ScreenRecorder } from "./screen/screenRecorder";
 import { MediaServer } from "./mediaServer";
+import { APP_NAME, TAGLINE } from "@shared/brand";
 import { VideoProjectRepo } from "./storage/videoProjects";
 import { VideoService } from "./video/videoService";
 import { NotesRepo } from "./storage/notes";
@@ -66,7 +69,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => windows.openPanel());
-  app.setAppUserModelId("com.nondh.app");
+  app.setAppUserModelId("com.nondh.ai");
   void app.whenReady().then(main);
 }
 
@@ -117,6 +120,7 @@ async function main(): Promise<void> {
   const modelsDir = () => resolveModelsDir(settings.get().modelsDir);
   const dbKey = settings.get().privacy.encryptDatabase ? getSecret("db-key") : null;
   const store = new Store(userDataPath("nondh.db"), { key: dbKey ?? undefined });
+  fixLegacyPaths(store.db, settings);
   const meetings = new MeetingRepo(store.db);
   const people = new PeopleRepo(store.db);
   const notes = new NotesRepo(store.db);
@@ -206,7 +210,7 @@ async function main(): Promise<void> {
     video.deleteExports(m);
     broadcast("video:changed");
   });
-  // Nondh AI's own folder (vd-audio, the dev Electron) never triggers the prompt.
+  // The app's own folder (vd-audio, the dev Electron) never triggers the prompt.
   const selfDir = app.isPackaged ? dirname(process.execPath) : app.getAppPath();
   const detector = new MeetingDetector(process.execPath, () => ({
     anyApp: settings.get().meetings.detectAnyApp,
@@ -255,7 +259,7 @@ async function main(): Promise<void> {
     if (state) {
       if (!windows.rec || windows.rec.isDestroyed()) windows.rec = createRecIndicator();
       if (!windows.meeting || windows.meeting.isDestroyed()) windows.meeting = createMeetingWindow();
-      // Keep Nondh AI's own controls out of screen recordings and other apps' screen shares.
+      // Keep the app's own controls out of screen recordings and other apps' screen shares.
       excludeFromCapture(windows.rec);
       excludeFromCapture(windows.meeting);
     } else {
@@ -413,15 +417,15 @@ async function main(): Promise<void> {
 
   // ---- tray ----
   tray = new Tray(nativeImage.createFromPath(resourcePath("tray.png")));
-  tray.setToolTip("Nondh AI");
+  tray.setToolTip(`${APP_NAME} — ${TAGLINE}`);
   tray.on("click", () => windows.openPanel());
   function updateTray(): void {
     const recording = !!meetingService.recording;
     tray.setImage(resourcePath(recording ? "tray-recording.png" : "tray.png"));
-    tray.setToolTip(recording ? "Nondh AI — recording a meeting" : "Nondh AI");
+    tray.setToolTip(recording ? `${APP_NAME} — recording a meeting` : `${APP_NAME} — ${TAGLINE}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: "Open Nondh AI", click: () => windows.openPanel() },
+        { label: `Open ${APP_NAME}`, click: () => windows.openPanel() },
         { label: "Start / stop dictation", click: () => dictation.toggleFromUi() },
         { type: "separator" },
         recording
@@ -497,5 +501,5 @@ async function main(): Promise<void> {
       log.error("warm-up failed", err);
     }
   })();
-  log.info(`Nondh AI ${app.getVersion()} started; models at ${modelsDir()}`);
+  log.info(`${APP_NAME} ${app.getVersion()} started; models at ${modelsDir()}`);
 }

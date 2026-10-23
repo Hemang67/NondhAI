@@ -8,7 +8,7 @@ export type UpdateStatus = { state: "off" | "idle" | "checking" | "available" | 
 
 /**
  * Updates from a "generic" feed: a web URL or a local/network folder containing the
- * electron-builder output (latest.yml + Nondh AI-Setup-x.y.z.exe). The installer is unsigned,
+ * electron-builder output (latest.yml + NondhAI-Setup-x.y.z.exe). The installer is unsigned,
  * so no publisher check is configured.
  */
 export class Updater {

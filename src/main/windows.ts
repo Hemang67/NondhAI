@@ -1,3 +1,4 @@
+import { APP_NAME } from "@shared/brand";
 import { app, BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
 import type { PillState } from "@shared/types";
@@ -70,7 +71,7 @@ export function createPanelWindow(): BrowserWindow {
     minWidth: 780,
     minHeight: 520,
     show: false,
-    title: "Nondh AI",
+    title: APP_NAME,
     icon: resourcePath("icon.ico"),
     backgroundColor: "#0b0d10",
     autoHideMenuBar: true,
@@ -91,7 +92,7 @@ export function createMeetingWindow(): BrowserWindow {
     x: workArea.x + workArea.width - 460,
     y: workArea.y + 80,
     show: false,
-    title: "Nondh AI — Recording",
+    title: `${APP_NAME} — Recording`,
     icon: resourcePath("icon.ico"),
     backgroundColor: "#0b0d10",
     autoHideMenuBar: true,
@@ -217,7 +218,7 @@ export function createRegionWindow(display: Electron.Display): BrowserWindow {
 }
 
 /**
- * Nondh AI's own on-screen controls are excluded from screen recordings (and from screen
+ * The app's own on-screen controls are excluded from screen recordings (and from screen
  * sharing in other apps) on Windows 10 2004+.
  */
 export function excludeFromCapture(win: BrowserWindow | null): void {

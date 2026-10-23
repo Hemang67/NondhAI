@@ -51,7 +51,7 @@ describe("classifyMicUser", () => {
   });
 
   it("ignores Nondh AI itself and unrelated apps", () => {
-    expect(classifyMicUser("C:#Program Files#Nondh AI#Nondh AI.exe", [], "C:\\Program Files\\Nondh AI\\Nondh AI.exe")).toBeNull();
+    expect(classifyMicUser("C:#Program Files#Nondh AI#NondhAI.exe", [], "C:\\Program Files\\Nondh AI\\NondhAI.exe")).toBeNull();
     expect(classifyMicUser("C:#Tools#Audacity#audacity.exe")).toBeNull();
   });
 });
