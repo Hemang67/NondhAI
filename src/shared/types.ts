@@ -66,7 +66,8 @@ export interface MeetingRecord {
   recovered: boolean;
 }
 
-export type ClipKind = "screen" | "window" | "region";
+/** "imported" marks a video brought in from outside (it lives in the video library, not a meeting). */
+export type ClipKind = "screen" | "window" | "region" | "imported";
 
 /** A screen recording made during a meeting; times are ms from the meeting's start. */
 export interface ClipRecord {

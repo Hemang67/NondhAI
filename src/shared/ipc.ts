@@ -3,7 +3,7 @@ import type { Rect } from "./screen";
 import type { Settings } from "./settings";
 import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
 import type { FolderRecord, NoteRecord, SearchHit } from "./notes";
-import type { BlurBox, ProjectSpec, SubtitleLine, VideoProject } from "./video/project";
+import type { BlurBox, LibraryVideo, ProjectSpec, SubtitleLine, VideoProject } from "./video/project";
 
 export interface ScreenSource {
   id: string;
@@ -50,6 +50,9 @@ export interface LibraryMeeting {
 
 export interface VideoProjectDetail {
   project: VideoProject;
+  /** A meeting's screen recordings, or videos imported into the library. */
+  source: "meeting" | "library";
+  /** The owner: a meeting, or (id "library") the imported videos. hasAudio: there is sound to use. */
   meeting: { id: string; title: string; hasAudio: boolean };
   clips: ClipRecord[];
   lines: TranscriptLine[];
@@ -57,7 +60,7 @@ export interface VideoProjectDetail {
 }
 
 export interface VideoProgress {
-  phase: "preparing" | "rendering" | "scanning" | "done" | "error" | "cancelled";
+  phase: "preparing" | "rendering" | "scanning" | "importing" | "transcribing" | "done" | "error" | "cancelled";
   fraction: number;
   error?: string;
 }
@@ -153,8 +156,12 @@ export interface InvokeMap {
   "clips:delete": [[id: string], void];
   "region:done": [[rect: Rect | null], void];
   // video library & editor
-  "video:library": [[], { meetings: LibraryMeeting[]; projects: VideoProject[] }];
-  "video:create": [[meetingId: string, clipIds: string[], title?: string], VideoProject];
+  "video:library": [[], { meetings: LibraryMeeting[]; imported: LibraryVideo[]; projects: VideoProject[] }];
+  "video:create": [[meetingId: string | null, clipIds: string[], title?: string], VideoProject];
+  "video:import": [[paths?: string[]], LibraryVideo[]];
+  "video:deleteImported": [[id: string], void];
+  "video:renameImported": [[id: string, title: string], void];
+  "video:speechSubtitles": [[id: string, spec: ProjectSpec], SubtitleLine[]];
   "video:get": [[id: string], VideoProjectDetail | null];
   "video:save": [[id: string, patch: { title?: string; spec?: ProjectSpec }], VideoProject | null];
   "video:subtitles": [[id: string, spec: ProjectSpec], SubtitleLine[]];
@@ -220,7 +227,8 @@ export const INVOKE_CHANNELS = [
   "updates:status", "updates:check", "updates:install",
   "screen:sources", "screen:pickRegion", "screen:start", "screen:stop", "screen:state", "clips:delete", "region:done",
   "video:library", "video:create", "video:get", "video:save", "video:subtitles", "video:delete", "video:export", "video:cancel",
-  "video:saveCopy", "video:findSensitive", "video:pickAsset",
+  "video:saveCopy", "video:findSensitive", "video:pickAsset", "video:import", "video:deleteImported", "video:renameImported",
+  "video:speechSubtitles",
 ] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
   "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",

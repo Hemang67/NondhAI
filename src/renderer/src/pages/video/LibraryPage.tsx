@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ClipRecord } from "@shared/types";
 import type { LibraryMeeting, VideoProgress } from "@shared/ipc";
-import { duration, type VideoProject } from "@shared/video/project";
+import { duration, LIBRARY, type LibraryVideo, type VideoProject } from "@shared/video/project";
 import { Badge, Button, cx, Input } from "../../components/ui";
 import { clock, CLIP_KIND, mediaUrl, useNav } from "../../nav";
+import { ImportedVideos } from "./ImportedVideos";
 
 const clipLen = (c: ClipRecord) => ((c.endMs ?? c.startMs) - c.startMs) / 1000;
 const dateTime = (ms: number) => new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -31,9 +32,10 @@ export function ExportStatus({ p, live }: { p: VideoProject; live?: VideoProgres
 }
 
 export function LibraryPage() {
-  const [data, setData] = useState<{ meetings: LibraryMeeting[]; projects: VideoProject[] } | null>(null);
+  const [data, setData] = useState<{ meetings: LibraryMeeting[]; imported: LibraryVideo[]; projects: VideoProject[] } | null>(null);
   const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [merge, setMerge] = useState<{ meeting: LibraryMeeting; clips: ClipRecord[] } | null>(null);
+  const [merge, setMerge] = useState<MergeRequest | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const progress = useVideoProgress();
@@ -46,7 +48,7 @@ export function LibraryPage() {
     return () => offs.forEach((o) => o());
   }, [load]);
 
-  const create = async (meetingId: string, clipIds: string[], title?: string) => {
+  const create = async (meetingId: string | null, clipIds: string[], title?: string) => {
     setError(null);
     try {
       const p = await window.vd.invoke("video:create", meetingId, clipIds, title);
@@ -62,23 +64,48 @@ export function LibraryPage() {
       return { ...cur, [meetingId]: list.includes(clipId) ? list.filter((x) => x !== clipId) : [...list, clipId] };
     });
 
+  const importFiles = async (paths?: string[]) => {
+    setError(null);
+    const added = await window.vd.invoke("video:import", paths);
+    if (paths?.length && !added.length) setError("Those files aren't videos this app can import.");
+  };
+
   if (!data) return null;
-  const titleOf = (id: string) => data.meetings.find((m) => m.id === id)?.title ?? "Meeting";
+  const titleOf = (id: string | null) => (id ? (data.meetings.find((m) => m.id === id)?.title ?? "Meeting") : "Imported video");
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div
+      className="relative h-full overflow-y-auto"
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        const paths = [...e.dataTransfer.files].map((f) => window.vd.pathForFile(f)).filter(Boolean);
+        if (paths.length) void importFiles(paths);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-accent/10 ring-4 ring-inset ring-accent">
+          <span className="rounded-lg bg-panel px-4 py-2 text-sm font-medium shadow">Drop videos to import them</span>
+        </div>
+      )}
       <div className="mx-auto max-w-4xl p-6">
         <h1 className="text-xl font-semibold">Video library</h1>
         <p className="mt-1 text-sm text-fg-muted">
-          Edit the screen recordings from your meetings: cut, crop, blur, add text, images, music and subtitles. Merge several recordings from the same meeting
-          into one video. Your original recordings are never changed.
+          Edit the screen recordings from your meetings, or videos you import: cut, crop, blur, add text, images, music and subtitles, and merge several into
+          one video. Your originals are never changed.
         </p>
         {error && <p className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <section className="mt-6">
           <h2 className="mb-2 text-sm font-semibold">Your edits</h2>
           {data.projects.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-line p-4 text-sm text-fg-muted">No edits yet. Pick a screen recording below to start one.</p>
+            <p className="rounded-lg border border-dashed border-line p-4 text-sm text-fg-muted">No edits yet. Import a video or pick a screen recording below to start one.</p>
           ) : (
             <ul className="divide-y divide-line rounded-lg border border-line bg-panel">
               {data.projects.map((p) => (
@@ -107,7 +134,7 @@ export function LibraryPage() {
                     <Button
                       className="h-7 px-2"
                       variant="ghost"
-                      onClick={() => confirm(`Delete the edit "${p.title}"? The original screen recordings are kept.`) && void window.vd.invoke("video:delete", p.id)}
+                      onClick={() => confirm(`Delete the edit "${p.title}"? The original videos are kept.`) && void window.vd.invoke("video:delete", p.id)}
                     >
                       Delete
                     </Button>
@@ -116,7 +143,7 @@ export function LibraryPage() {
                   {preview === p.id && p.exportFile && (
                     <video
                       key={`${p.exportFile}${p.exportedAt}`}
-                      src={`${mediaUrl(p.meetingId, "edit", p.id)}?v=${p.exportedAt}`}
+                      src={`${mediaUrl(p.meetingId ?? LIBRARY, "edit", p.id)}?v=${p.exportedAt}`}
                       controls
                       autoPlay
                       className="mt-3 max-h-[60vh] w-full rounded-md bg-black"
@@ -127,6 +154,24 @@ export function LibraryPage() {
             </ul>
           )}
         </section>
+
+        <ImportedVideos
+          videos={data.imported}
+          projects={data.projects}
+          progress={progress}
+          onImport={() => void importFiles()}
+          onEdit={(ids) => void create(null, ids)}
+          onMerge={(ids) =>
+            setMerge({
+              meetingId: null,
+              defaultTitle: `${ids.length} videos merged`,
+              ordered: true,
+              items: ids
+                .map((id) => data.imported.find((v) => v.id === id)!)
+                .map((v) => ({ id: v.id, label: v.title, seconds: (v.durationMs ?? 0) / 1000 })),
+            })
+          }
+        />
 
         <section className="mt-8">
           <h2 className="mb-2 text-sm font-semibold">Screen recordings</h2>
@@ -161,7 +206,14 @@ export function LibraryPage() {
                           variant="primary"
                           disabled={sel.length < 2}
                           title={sel.length < 2 ? "Tick two or more recordings to merge them" : undefined}
-                          onClick={() => setMerge({ meeting: m, clips: m.clips.filter((c) => sel.includes(c.id)) })}
+                          onClick={() =>
+                            setMerge({
+                              meetingId: m.id,
+                              defaultTitle: `${m.title} — ${sel.length} clips merged`,
+                              ordered: false,
+                              items: m.clips.filter((c) => sel.includes(c.id)).map((c) => ({ id: c.id, label: c.label, seconds: clipLen(c) })),
+                            })
+                          }
                         >
                           {sel.length >= 2 ? `Merge ${sel.length} selected…` : "Merge selected…"}
                         </Button>
@@ -192,16 +244,30 @@ export function LibraryPage() {
           </div>
         </section>
       </div>
-      {merge && <MergeDialog {...merge} onCancel={() => setMerge(null)} onMerge={(title) => void create(merge.meeting.id, merge.clips.map((c) => c.id), title).then(() => setMerge(null))} />}
+      {merge && (
+        <MergeDialog
+          {...merge}
+          onCancel={() => setMerge(null)}
+          onMerge={(title) => void create(merge.meetingId, merge.items.map((c) => c.id), title).then(() => setMerge(null))}
+        />
+      )}
     </div>
   );
 }
 
-/** Asks before merging: shows exactly which recordings will be joined, in what order. */
-function MergeDialog({ meeting, clips, onCancel, onMerge }: { meeting: LibraryMeeting; clips: ClipRecord[]; onCancel: () => void; onMerge: (title: string) => void }) {
-  const ordered = [...clips].sort((a, b) => a.startMs - b.startMs);
-  const [title, setTitle] = useState(`${meeting.title} — ${clips.length} clips merged`);
-  const total = ordered.reduce((t, c) => t + clipLen(c), 0);
+interface MergeRequest {
+  meetingId: string | null;
+  defaultTitle: string;
+  /** Items are in the order they'll be joined: the order ticked (imported videos), or recording order. */
+  ordered: boolean;
+  items: Array<{ id: string; label: string; seconds: number }>;
+}
+
+/** Asks before merging: shows exactly what will be joined, in what order. */
+function MergeDialog({ items, defaultTitle, ordered: asTicked, onCancel, onMerge }: MergeRequest & { onCancel: () => void; onMerge: (title: string) => void }) {
+  const ordered = items;
+  const [title, setTitle] = useState(defaultTitle);
+  const total = ordered.reduce((t, c) => t + c.seconds, 0);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
     window.addEventListener("keydown", onKey);
@@ -211,18 +277,18 @@ function MergeDialog({ meeting, clips, onCancel, onMerge }: { meeting: LibraryMe
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
       <div role="dialog" aria-modal="true" aria-labelledby="merge-title" className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 id="merge-title" className="text-base font-semibold">
-          Merge {clips.length} recordings?
+          Merge {items.length} videos?
         </h2>
         <p className="mt-1 text-sm text-fg-muted">
-          They will be joined into one new video in the order they were recorded ({clock(total * 1000)} in total). The originals stay as they are, and you can
-          trim, reorder or remove parts in the editor.
+          They will be joined into one new video {asTicked ? "in the order you ticked them" : "in the order they were recorded"} ({clock(total * 1000)} in
+          total). The originals stay as they are, and you can trim, reorder or remove parts in the editor.
         </p>
         <ol className="mt-3 space-y-1 rounded-md bg-muted p-2 text-sm">
           {ordered.map((c, i) => (
             <li key={c.id} className="flex gap-2">
               <span className="text-fg-muted">{i + 1}.</span>
               <span className="min-w-0 flex-1 truncate">{c.label}</span>
-              <span className="tabular-nums text-fg-muted">{clock(clipLen(c) * 1000)}</span>
+              <span className="tabular-nums text-fg-muted">{clock(c.seconds * 1000)}</span>
             </li>
           ))}
         </ol>

@@ -50,9 +50,11 @@ function usePlayer(spec: ProjectSpec, detail: VideoProjectDetail | null) {
   const meetingId = detail?.meeting.id;
   const clipStart = useMemo(() => Object.fromEntries((detail?.clips ?? []).map((c) => [c.id, c.startMs / 1000])), [detail]);
 
+  // Imported videos play their own soundtrack from the <video>; meeting edits use the recording.
+  const ownSound = detail?.source === "library";
   // Meeting audio element.
   useEffect(() => {
-    if (!meetingId || !detail?.meeting.hasAudio) return;
+    if (!meetingId || !detail?.meeting.hasAudio || ownSound) return;
     const a = new Audio(mediaUrl(meetingId));
     a.preload = "auto";
     audio.current = a;
@@ -61,7 +63,7 @@ function usePlayer(spec: ProjectSpec, detail: VideoProjectDetail | null) {
       a.src = "";
       audio.current = null;
     };
-  }, [meetingId, detail?.meeting.hasAudio]);
+  }, [meetingId, detail?.meeting.hasAudio, ownSound]);
 
   // One element per added audio track.
   const trackKey = spec.audioTracks.map((a) => `${a.id}:${a.file}`).join("|");
@@ -84,6 +86,10 @@ function usePlayer(spec: ProjectSpec, detail: VideoProjectDetail | null) {
       const v = video.current;
       const loc = locate(s, time);
       const a = audio.current;
+      if (v && ownSound) {
+        v.muted = !s.meetingAudio.enabled;
+        v.volume = Math.min(1, s.meetingAudio.volume);
+      }
       if (a && loc) {
         a.muted = !s.meetingAudio.enabled;
         a.volume = Math.min(1, s.meetingAudio.volume);
@@ -104,7 +110,7 @@ function usePlayer(spec: ProjectSpec, detail: VideoProjectDetail | null) {
         } else if (!el.paused) el.pause();
       }
     },
-    [clipStart],
+    [clipStart, ownSound],
   );
 
   /** Show the frame at timeline time `time` (loading another clip if needed). */
@@ -304,7 +310,15 @@ export function VideoEditor({ id }: { id: string }) {
   useEffect(() => () => void save(), [save]);
 
   const total = spec ? duration(spec) : 0;
-  const clipIndex = useMemo(() => Object.fromEntries((detail?.clips ?? []).map((c, i) => [c.id, i])), [detail]);
+  // Meeting recordings are numbered in recording order; imported videos in the order they appear in the edit.
+  const segOrder = (spec?.segments ?? []).map((s) => s.clipId).filter((id, i, all) => all.indexOf(id) === i).join(",");
+  const clipIndex = useMemo(
+    () =>
+      detail?.source === "library"
+        ? Object.fromEntries(segOrder.split(",").map((id, i) => [id, i]))
+        : Object.fromEntries((detail?.clips ?? []).map((c, i) => [c.id, i])),
+    [detail, segOrder],
+  );
   const base = useMemo(() => {
     const c = detail?.clips.find((x) => x.id === spec?.segments[0]?.clipId);
     return { width: c?.width ?? 1280, height: c?.height ?? 720 };
@@ -500,7 +514,7 @@ export function VideoEditor({ id }: { id: string }) {
             {showExport && project.exportStatus === "done" ? (
               <video
                 key={project.exportedAt ?? 0}
-                src={`${mediaUrl(project.meetingId, "edit", id)}?v=${project.exportedAt}`}
+                src={`${mediaUrl(detail.meeting.id, "edit", id)}?v=${project.exportedAt}`}
                 controls
                 autoPlay
                 className="size-full bg-black object-contain"
@@ -566,7 +580,7 @@ export function VideoEditor({ id }: { id: string }) {
         {/* Tools */}
         <aside className="flex w-80 shrink-0 flex-col border-l border-line bg-panel">
           <div className="flex flex-wrap gap-0.5 border-b border-line p-1.5" role="tablist">
-            {TABS.map((x) => (
+            {TABS.filter((x) => x.id !== "transcript" || detail.source === "meeting").map((x) => (
               <button
                 key={x.id}
                 role="tab"
@@ -593,7 +607,7 @@ export function VideoEditor({ id }: { id: string }) {
             )}
             {tab === "text" && <TextPanel {...panelCtx} />}
             {tab === "media" && <MediaPanel {...panelCtx} trackLengths={player.trackLengths} />}
-            {tab === "subtitles" && <SubtitlesPanel {...panelCtx} />}
+            {tab === "subtitles" && <SubtitlesPanel {...panelCtx} live={live} />}
             {tab === "transcript" && <TranscriptPanel {...panelCtx} cut={cut} />}
           </div>
         </aside>

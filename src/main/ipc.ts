@@ -134,6 +134,7 @@ export function registerIpc(ctx: AppContext): void {
   handle("app:deleteEverything", () => {
     for (const m of meetings.list({ limit: 100000 })) ctx.meetingService.deleteMeeting(m);
     const db = store.db;
+    ctx.video.deleteAllImported();
     db.exec(`DELETE FROM meeting_lines; DELETE FROM meeting_speakers; DELETE FROM meetings; DELETE FROM voiceprints; DELETE FROM people;
              DELETE FROM notes; DELETE FROM folders; DELETE FROM embeddings; DELETE FROM dictations; DELETE FROM dictionary;`);
     db.exec(`INSERT INTO dictations_fts(dictations_fts) VALUES ('rebuild'); INSERT INTO notes_fts(notes_fts) VALUES ('rebuild');
@@ -401,6 +402,10 @@ export function registerIpc(ctx: AppContext): void {
   handle("video:saveCopy", (id) => video.saveCopy(id));
   handle("video:findSensitive", (id, spec) => video.findSensitive(id, spec));
   handle("video:pickAsset", (id, kind) => video.pickAsset(id, kind));
+  handle("video:import", async (paths) => changed(await video.importVideos(paths)));
+  handle("video:deleteImported", (id) => changed(video.deleteImported(id)));
+  handle("video:renameImported", (id, title) => changed(video.renameImported(id, title)));
+  handle("video:speechSubtitles", (id, spec) => video.speechSubtitles(id, spec));
 
   // ---- calendar ----
   handle("calendar:status", () => ctx.calendar.status());

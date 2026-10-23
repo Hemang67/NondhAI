@@ -7,6 +7,7 @@ import {
   emptySpec,
   locate,
   moveSegment,
+  speechToSubtitles,
   splitAt,
   subtitlesFromTranscript,
   toSrt,
@@ -107,5 +108,24 @@ describe("subtitles", () => {
 describe("clampRect", () => {
   it("keeps rectangles inside the frame", () => {
     expect(clampRect({ x: 0.95, y: -0.1, w: 0.2, h: 0.2 })).toEqual({ x: 0.8, y: 0, w: 0.2, h: 0.2 });
+  });
+});
+
+describe("speechToSubtitles", () => {
+  const words = (text: string, start: number, step: number) => text.split(" ").map((w, i) => ({ w, start: start + i * step, end: start + (i + 1) * step }));
+  it("keeps short utterances whole and moves them onto the timeline", () => {
+    const subs = speechToSubtitles([{ start: 1000, end: 2500, text: "Hello there", words: words("Hello there", 1000, 750) }], 10, 100);
+    expect(subs.map((s) => [s.text, s.start, s.end])).toEqual([["Hello there", 11, 12.5]]);
+  });
+  it("splits long utterances at word boundaries and stops at the segment end", () => {
+    const text = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
+    const seg = [{ start: 0, end: 15000, text, words: words(text, 0, 500) }];
+    const subs = speechToSubtitles(seg, 0, 100);
+    expect(subs).toHaveLength(3);
+    expect(subs.every((s) => s.text.length <= 84 && s.end - s.start <= 6.01)).toBe(true);
+    expect(subs.map((s) => s.text).join(" ")).toBe(text); // nothing lost or repeated
+    const cut = speechToSubtitles(seg, 0, 12);
+    expect(cut).toHaveLength(2);
+    expect(cut.at(-1)!.end).toBeLessThanOrEqual(12);
   });
 });

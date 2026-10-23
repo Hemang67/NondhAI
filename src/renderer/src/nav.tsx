@@ -39,7 +39,7 @@ export function speakerColor(key: string): string {
   return palette[h % palette.length]!;
 }
 
-export const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region" } as const;
+export const CLIP_KIND = { screen: "Entire screen", window: "Window", region: "Region", imported: "Imported" } as const;
 
 /**
  * URL of a meeting's media for <audio>/<video>/<img>: the recording itself, or a sub-path

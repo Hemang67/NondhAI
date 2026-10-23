@@ -336,6 +336,7 @@ export function TextPanel({ spec, update, selection, select, t, total, seek }: C
 
 export function MediaPanel(c: Ctx & { trackLengths: Record<string, number> }) {
   const { spec, update, selection, select, t, total, detail, seek } = c;
+  const soundLabel = detail.source === "library" ? "Original sound" : "Meeting audio";
   const [error, setError] = useState<string | null>(null);
   const sel = spec.images.find((x) => selection?.kind === "image" && x.id === selection.id);
   const pick = async (kind: "image" | "audio") => {
@@ -409,13 +410,13 @@ export function MediaPanel(c: Ctx & { trackLengths: Record<string, number> }) {
         <div className="space-y-2 rounded-md border border-line p-3">
           <label className="flex items-center justify-between text-xs">
             <span>
-              Meeting audio
-              {!detail.meeting.hasAudio && <span className="text-fg-muted"> (deleted)</span>}
+              {soundLabel}
+              {!detail.meeting.hasAudio && <span className="text-fg-muted"> ({detail.source === "library" ? "none in this video" : "deleted"})</span>}
             </span>
             <Switch
               checked={spec.meetingAudio.enabled && detail.meeting.hasAudio}
               onChange={(v) => update((s) => ({ ...s, meetingAudio: { ...s.meetingAudio, enabled: v } }))}
-              label="Meeting audio"
+              label={soundLabel}
             />
           </label>
           {spec.meetingAudio.enabled && detail.meeting.hasAudio && (
@@ -481,8 +482,22 @@ export function MediaPanel(c: Ctx & { trackLengths: Record<string, number> }) {
 
 // ---------------------------------------------------------------- subtitles
 
-export function SubtitlesPanel({ spec, update, selection, select, t, total, seek, detail }: Ctx) {
+export function SubtitlesPanel({ spec, update, selection, select, t, total, seek, detail, live }: Ctx & { live?: VideoProgress }) {
   const subs = spec.subtitles;
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const transcribing = live?.phase === "transcribing";
+  const fromSpeech = async () => {
+    if (subs.lines.length && !confirm("Replace the subtitles with new ones made from the video's speech? Your subtitle edits will be lost (Undo brings them back).")) return;
+    setSpeechError(null);
+    try {
+      const lines = await window.vd.invoke("video:speechSubtitles", detail.project.id, spec);
+      setSubs({ lines });
+      if (!lines.length) setSpeechError("No speech was found in this video.");
+    } catch (e) {
+      const msg = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+      if (msg !== "cancelled") setSpeechError(msg);
+    }
+  };
   const setSubs = (patch: Partial<ProjectSpec["subtitles"]>, key?: string) => update((s) => ({ ...s, subtitles: { ...s.subtitles, ...patch } }), key);
   const setLine = (id: string, patch: Partial<ProjectSpec["subtitles"]["lines"][number]>, key?: string) =>
     update((s) => ({ ...s, subtitles: { ...s.subtitles, lines: s.subtitles.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) } }), key);
@@ -504,9 +519,22 @@ export function SubtitlesPanel({ spec, update, selection, select, t, total, seek
         </label>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button className="h-7 px-2" onClick={() => void rebuild()}>
-          {subs.lines.length ? "Rebuild from transcript" : "Make from transcript"}
-        </Button>
+        {detail.source === "meeting" ? (
+          <Button className="h-7 px-2" onClick={() => void rebuild()}>
+            {subs.lines.length ? "Rebuild from transcript" : "Make from transcript"}
+          </Button>
+        ) : transcribing ? (
+          <span className="flex items-center gap-2 text-xs text-fg-muted">
+            Listening… {Math.round((live?.fraction ?? 0) * 100)}%
+            <Button className="h-7 px-2" variant="ghost" onClick={() => void window.vd.invoke("video:cancel", detail.project.id)}>
+              Stop
+            </Button>
+          </span>
+        ) : (
+          <Button className="h-7 px-2" disabled={!detail.meeting.hasAudio} title={detail.meeting.hasAudio ? undefined : "This video has no sound"} onClick={() => void fromSpeech()}>
+            Make subtitles from speech
+          </Button>
+        )}
         <Button
           className="h-7 px-2"
           variant="ghost"
@@ -519,7 +547,14 @@ export function SubtitlesPanel({ spec, update, selection, select, t, total, seek
           + Line at playhead
         </Button>
       </div>
-      {subs.lines.length === 0 && <p className="text-xs text-fg-muted">No subtitles. They're made from the meeting transcript for the parts you keep.</p>}
+      {speechError && <p className="text-xs text-red-600 dark:text-red-400">{speechError}</p>}
+      {subs.lines.length === 0 && (
+        <p className="text-xs text-fg-muted">
+          {detail.source === "meeting"
+            ? "No subtitles. They're made from the meeting transcript for the parts you keep."
+            : "No subtitles yet. Make them from what's said in the video (on this computer, with the offline speech model), or add lines yourself."}
+        </p>
+      )}
       <ul className="space-y-1.5">
         {subs.lines.map((l) => {
           const active = t >= l.start && t < l.end;

@@ -64,4 +64,29 @@ describe("render with ffmpeg", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
+  it("renders an imported video with its own soundtrack", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vd-render-"));
+    try {
+      const f = (n: string) => join(dir, n);
+      expect(run(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25", "-f", "lavfi", "-i", "sine=frequency=500", "-t", "5", "-c:v", "libx264", "-c:a", "aac", "-shortest", f("in.mp4")]).status).toBe(0);
+      const spec = cutRange(emptySpec([{ id: "V", startMs: 0, duration: 5 }]), 1, 2);
+      const plan = buildRender({
+        spec,
+        clips: { V: { file: f("in.mp4"), width: 320, height: 240, startMs: 0, audio: true } },
+        meetingAudio: null,
+        font: "C:/Windows/Fonts/segoeui.ttf",
+        tmpDir: dir.replace(/\\/g, "/"),
+        output: f("out.mp4"),
+      });
+      const r = run(plan.args);
+      expect(r.stderr).toBe("");
+      // The output's sound is the video's own tone, not silence.
+      const vol = run(["-hide_banner", "-i", f("out.mp4"), "-af", "volumedetect", "-f", "null", "-"]).stderr;
+      expect(Number(/mean_volume: (-?[\d.]+) dB/.exec(vol)![1])).toBeGreaterThan(-40);
+      const [, h, m, sec] = run(["-hide_banner", "-i", f("out.mp4")]).stderr.match(/Duration: (\d+):(\d+):([\d.]+)/)!;
+      expect(Number(h) * 3600 + Number(m) * 60 + Number(sec)).toBeCloseTo(4, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

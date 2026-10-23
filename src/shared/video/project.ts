@@ -263,7 +263,8 @@ export function clampRect(r: NRect, min = 0.01): NRect {
 /** A saved edit in the video library. */
 export interface VideoProject {
   id: string;
-  meetingId: string;
+  /** The meeting whose screen recordings it uses; null for an edit of imported videos. */
+  meetingId: string | null;
   title: string;
   spec: ProjectSpec;
   exportFile: string | null;
@@ -272,4 +273,61 @@ export interface VideoProject {
   exportedAt: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** A video brought into the library from outside the app (kept as its own playable copy). */
+export interface LibraryVideo {
+  id: string;
+  title: string;
+  originalName: string;
+  /** File name inside the library folder, once imported. */
+  file: string | null;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  hasAudio: boolean;
+  status: "importing" | "ready" | "error";
+  error: string | null;
+  createdAt: number;
+}
+
+/** Media-server path segment and owner id used for imported videos and their edits. */
+export const LIBRARY = "library";
+
+/**
+ * Subtitle lines from recognized speech. Long utterances are split at word boundaries so each
+ * line stays readable (about two short rows, a few seconds). `offset` moves the speech, which is
+ * timed from the start of the audio it came from, onto the timeline; `limit` cuts it off there.
+ */
+export function speechToSubtitles(
+  segments: Array<{ start: number; end: number; text: string; words: Array<{ w: string; start: number; end: number }> }>,
+  offset: number,
+  limit: number,
+  maxChars = 84,
+  maxSeconds = 6,
+): SubtitleLine[] {
+  const out: SubtitleLine[] = [];
+  const push = (text: string, startMs: number, endMs: number) => {
+    const start = offset + startMs / 1000;
+    const end = Math.min(limit, offset + endMs / 1000);
+    if (text.trim() && end - start > 0.1) out.push({ id: newId("t"), start, end, text: text.trim() });
+  };
+  for (const s of segments) {
+    if (!s.words.length || (s.text.length <= maxChars && (s.end - s.start) / 1000 <= maxSeconds)) {
+      push(s.text, s.start, s.end);
+      continue;
+    }
+    let words: typeof s.words = [];
+    const flush = () => {
+      if (words.length) push(words.map((w) => w.w).join(" "), words[0]!.start, words.at(-1)!.end);
+      words = [];
+    };
+    for (const w of s.words) {
+      const text = [...words, w].map((x) => x.w).join(" ");
+      if (words.length && (text.length > maxChars || (w.end - words[0]!.start) / 1000 > maxSeconds)) flush();
+      words.push(w);
+    }
+    flush();
+  }
+  return out;
 }

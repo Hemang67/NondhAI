@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import type { ProjectSpec, VideoProject } from "@shared/video/project";
+import type { LibraryVideo, ProjectSpec, VideoProject } from "@shared/video/project";
 
 interface Row {
   id: string;
-  meeting_id: string;
+  meeting_id: string | null;
   title: string;
   spec_json: string;
   export_file: string | null;
@@ -31,7 +31,7 @@ const fromRow = (r: Row): VideoProject => ({
 export class VideoProjectRepo {
   constructor(private readonly db: Database.Database) {}
 
-  create(p: { meetingId: string; title: string; spec: ProjectSpec }): VideoProject {
+  create(p: { meetingId: string | null; title: string; spec: ProjectSpec }): VideoProject {
     const id = randomUUID();
     const now = Date.now();
     this.db
@@ -50,14 +50,19 @@ export class VideoProjectRepo {
     return (
       this.db
         .prepare(
-          `SELECT v.* FROM video_projects v JOIN meetings m ON m.id = v.meeting_id WHERE m.deleted_at IS NULL ORDER BY v.updated_at DESC`,
+          `SELECT v.* FROM video_projects v LEFT JOIN meetings m ON m.id = v.meeting_id
+           WHERE v.meeting_id IS NULL OR m.deleted_at IS NULL ORDER BY v.updated_at DESC`,
         )
         .all() as Row[]
     ).map(fromRow);
   }
 
-  forMeeting(meetingId: string): VideoProject[] {
-    return (this.db.prepare(`SELECT * FROM video_projects WHERE meeting_id = ? ORDER BY updated_at DESC`).all(meetingId) as Row[]).map(fromRow);
+  /** Edits of one meeting, or (null) the edits of imported videos. */
+  forMeeting(meetingId: string | null): VideoProject[] {
+    const rows = meetingId
+      ? this.db.prepare(`SELECT * FROM video_projects WHERE meeting_id = ? ORDER BY updated_at DESC`).all(meetingId)
+      : this.db.prepare(`SELECT * FROM video_projects WHERE meeting_id IS NULL ORDER BY updated_at DESC`).all();
+    return (rows as Row[]).map(fromRow);
   }
 
   update(id: string, patch: { title?: string; spec?: ProjectSpec }): VideoProject | null {
@@ -84,5 +89,70 @@ export class VideoProjectRepo {
 
   delete(id: string): void {
     this.db.prepare(`DELETE FROM video_projects WHERE id = ?`).run(id);
+  }
+}
+
+interface VideoRow {
+  id: string;
+  title: string;
+  original_name: string;
+  file: string | null;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  has_audio: number;
+  status: LibraryVideo["status"];
+  error: string | null;
+  created_at: number;
+}
+
+const videoFromRow = (r: VideoRow): LibraryVideo => ({
+  id: r.id,
+  title: r.title,
+  originalName: r.original_name,
+  file: r.file,
+  width: r.width,
+  height: r.height,
+  durationMs: r.duration_ms,
+  hasAudio: !!r.has_audio,
+  status: r.status,
+  error: r.error,
+  createdAt: r.created_at,
+});
+
+export class LibraryVideoRepo {
+  constructor(private readonly db: Database.Database) {}
+
+  create(v: { title: string; originalName: string }): LibraryVideo {
+    const id = randomUUID();
+    this.db.prepare(`INSERT INTO library_videos (id, title, original_name, created_at) VALUES (?, ?, ?, ?)`).run(id, v.title, v.originalName, Date.now());
+    return this.get(id)!;
+  }
+
+  get(id: string): LibraryVideo | null {
+    const r = this.db.prepare(`SELECT * FROM library_videos WHERE id = ?`).get(id) as VideoRow | undefined;
+    return r ? videoFromRow(r) : null;
+  }
+
+  list(): LibraryVideo[] {
+    return (this.db.prepare(`SELECT * FROM library_videos ORDER BY created_at DESC`).all() as VideoRow[]).map(videoFromRow);
+  }
+
+  ready(id: string, v: { file: string; width: number; height: number; durationMs: number; hasAudio: boolean }): void {
+    this.db
+      .prepare(`UPDATE library_videos SET status = 'ready', error = NULL, file = ?, width = ?, height = ?, duration_ms = ?, has_audio = ? WHERE id = ?`)
+      .run(v.file, v.width, v.height, v.durationMs, v.hasAudio ? 1 : 0, id);
+  }
+
+  failed(id: string, error: string): void {
+    this.db.prepare(`UPDATE library_videos SET status = 'error', error = ?, file = NULL WHERE id = ?`).run(error, id);
+  }
+
+  rename(id: string, title: string): void {
+    if (title.trim()) this.db.prepare(`UPDATE library_videos SET title = ? WHERE id = ?`).run(title.trim(), id);
+  }
+
+  delete(id: string): void {
+    this.db.prepare(`DELETE FROM library_videos WHERE id = ?`).run(id);
   }
 }

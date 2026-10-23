@@ -3,8 +3,11 @@ import { segLen } from "./project";
 
 export interface RenderInput {
   spec: ProjectSpec;
-  /** Readable (decrypted) video file and size for every clip the timeline uses. */
-  clips: Record<string, { file: string; width: number; height: number; startMs: number }>;
+  /**
+   * Readable (decrypted) video file and size for every clip the timeline uses. `audio` marks a
+   * clip with its own soundtrack (an imported video), used when there is no meeting audio.
+   */
+  clips: Record<string, { file: string; width: number; height: number; startMs: number; audio?: boolean }>;
   /** The meeting recording, if there is one (used when meetingAudio is enabled). */
   meetingAudio: string | null;
   /** Absolute path of a font file for text and subtitles. */
@@ -110,6 +113,11 @@ export function buildRender(i: RenderInput): RenderPlan {
       const a0 = c.startMs / 1000 + s.in;
       graph.push(
         `[${meetingIn}:a]atrim=start=${num(a0)}:end=${num(a0 + segLen(s))},asetpts=PTS-STARTPTS,` +
+          `aformat=sample_rates=48000:channel_layouts=stereo,apad=whole_dur=${num(segLen(s))},volume=${num(spec.meetingAudio.volume)}[a${k}]`,
+      );
+    } else if (spec.meetingAudio.enabled && c.audio) {
+      graph.push(
+        `[${vin}:a]atrim=start=${num(s.in)}:end=${num(s.out)},asetpts=PTS-STARTPTS,` +
           `aformat=sample_rates=48000:channel_layouts=stereo,apad=whole_dur=${num(segLen(s))},volume=${num(spec.meetingAudio.volume)}[a${k}]`,
       );
     } else {

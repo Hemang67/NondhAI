@@ -169,7 +169,7 @@ export function Timeline({
                     onSelect({ kind: "segment", id: s.id });
                     scrub(e);
                   }}
-                  title={`Recording #${n + 1}: ${clock(s.in * 1000)}–${clock(s.out * 1000)} of the original`}
+                  title={`Video #${n + 1}: ${clock(s.in * 1000)}–${clock(s.out * 1000)} of the original`}
                 >
                   <span className="truncate">
                     #{n + 1} · {clock(segLen(s) * 1000)}

@@ -45,6 +45,18 @@ describe("buildRender", () => {
     expect(graphOf(buildRender(base(spec)))).toContain("aevalsrc=0|0:s=48000:d=4[a0]");
   });
 
+  it("uses an imported video's own sound when there is no meeting audio", () => {
+    const spec = splitAt(emptySpec([{ id: "A", startMs: 0, duration: 10 }]), 4);
+    const p = buildRender({ ...base(spec), meetingAudio: null, clips: { A: { ...clipsMeta.A, audio: true } } });
+    const g = graphOf(p);
+    expect(p.args.filter((a) => a === "-i")).toHaveLength(1);
+    expect(g).toContain("[0:a]atrim=start=0:end=4,");
+    expect(g).toContain("[0:a]atrim=start=4:end=10,");
+    // Switched off → silence.
+    const off = { ...spec, meetingAudio: { enabled: false, volume: 1 } };
+    expect(graphOf(buildRender({ ...base(off), meetingAudio: null, clips: { A: { ...clipsMeta.A, audio: true } } }))).not.toContain("[0:a]");
+  });
+
   it("crops, then applies blurs relative to the cropped frame, limited in time", () => {
     const spec: ProjectSpec = {
       ...emptySpec([{ id: "A", startMs: 0, duration: 10 }]),

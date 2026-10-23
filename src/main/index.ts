@@ -13,7 +13,8 @@ import { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
 import { ScreenRecorder } from "./screen/screenRecorder";
 import { MediaServer } from "./mediaServer";
 import { APP_NAME, TAGLINE } from "@shared/brand";
-import { VideoProjectRepo } from "./storage/videoProjects";
+import { LIBRARY } from "@shared/video/project";
+import { LibraryVideoRepo, VideoProjectRepo } from "./storage/videoProjects";
 import { VideoService } from "./video/videoService";
 import { NotesRepo } from "./storage/notes";
 import { getSecret, hasSecret, type SecretName } from "./secrets";
@@ -205,7 +206,17 @@ async function main(): Promise<void> {
     updateTray();
   });
   screenRecorder.on("changed", () => broadcast("meetings:changed"));
-  const video = new VideoService({ videos: new VideoProjectRepo(store.db), clips, meetings, encrypt: () => settings.get().meetings.encryptAudio });
+  const libraryVideos = new LibraryVideoRepo(store.db);
+  const video = new VideoService({
+    videos: new VideoProjectRepo(store.db),
+    library: libraryVideos,
+    libraryDir: userDataPath("library"),
+    clips,
+    meetings,
+    encrypt: () => settings.get().meetings.encryptAudio,
+    transcribe: (pcm, onProgress) => speech.finalPass(pcm, "mixed", onProgress),
+  });
+  video.on("changed", () => broadcast("video:changed"));
   video.on("progress", (id: string, p: unknown) => broadcast("video:progress", id, p));
   meetingService.on("audioDeleted", (m: MeetingRecord) => {
     video.deleteExports(m);
@@ -307,6 +318,23 @@ async function main(): Promise<void> {
   const mediaServer = new MediaServer({
     decrypt: decrypted,
     resolve: (meetingId, [first = "", second = ""]) => {
+      if (meetingId === LIBRARY) {
+        // Imported videos, their edits' exports and added files, in the library folder.
+        const dir = userDataPath("library");
+        let file: string | null | undefined = null;
+        let type = "video/mp4";
+        if (first === "edit") {
+          const p = video.get(second)?.project;
+          file = p && p.meetingId === null ? p.exportFile : null;
+        } else if (first === "asset") {
+          file = /^[\w-]+\.\w+$/.test(second) ? join("video-assets", second) : null;
+          type = TYPES[second.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
+        } else if (first) {
+          file = libraryVideos.get(first)?.file;
+          if (file?.endsWith(".webm")) type = "video/webm";
+        }
+        return file ? { path: join(dir, file), type, encrypted: file.endsWith(".enc") } : null;
+      }
       const m = meetings.get(meetingId);
       if (!m) return null;
       let file: string | null | undefined = null;

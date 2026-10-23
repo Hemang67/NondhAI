@@ -211,4 +211,36 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX video_projects_meeting ON video_projects(meeting_id);
   `,
+  // 5: videos imported into the library from outside the app; their edits have no meeting
+  `
+  CREATE TABLE library_videos (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    file TEXT,
+    width INTEGER,
+    height INTEGER,
+    duration_ms INTEGER,
+    has_audio INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'importing' CHECK (status IN ('importing', 'ready', 'error')),
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE video_projects_v5 (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT REFERENCES meetings(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    spec_json TEXT NOT NULL,
+    export_file TEXT,
+    export_status TEXT NOT NULL DEFAULT 'none' CHECK (export_status IN ('none', 'rendering', 'done', 'error')),
+    export_error TEXT,
+    exported_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  INSERT INTO video_projects_v5 SELECT id, meeting_id, title, spec_json, export_file, export_status, export_error, exported_at, created_at, updated_at FROM video_projects;
+  DROP TABLE video_projects;
+  ALTER TABLE video_projects_v5 RENAME TO video_projects;
+  CREATE INDEX video_projects_meeting ON video_projects(meeting_id);
+  `,
 ];
