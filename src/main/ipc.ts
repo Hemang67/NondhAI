@@ -21,7 +21,7 @@ import type { CalendarService } from "./calendar/calendarService";
 import type { AssistantService } from "./assistant/assistantService";
 import type { DictationController } from "./dictation/dictationController";
 import { getSecret, hasSecret, INTERNAL_SECRETS, SECRET_NAMES, setSecret, type SecretName } from "./secrets";
-import { SPEAKER_MODEL } from "./models/registry";
+import { SPEAKER_MODEL, neededModels } from "./models/registry";
 import { toDocx } from "./meeting/docx";
 import { apiToken } from "./api/apiServer";
 import { userDataPath } from "./paths";
@@ -195,6 +195,13 @@ export function registerIpc(ctx: AppContext): void {
   });
   handle("models:cancel", (id) => ctx.models.cancel(id));
   handle("models:delete", (id) => ctx.models.delete(id));
+  handle("models:setup", () => ctx.models.setup(neededModels(settings.get())));
+  handle("models:setupRetry", () => {
+    void ctx.models
+      .ensure(neededModels(settings.get()))
+      .then(() => ctx.speech.warm())
+      .catch((err) => log.warn("speech warm-up failed", err));
+  });
 
   // ---- meetings ----
   handle("meetings:list", (opts) => meetings.list(opts));

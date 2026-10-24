@@ -1,4 +1,4 @@
-import type { ClipKind, ClipRecord, DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState } from "./types";
+import type { ClipKind, ClipRecord, DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState, SetupStatus } from "./types";
 import type { Rect } from "./screen";
 import type { Settings } from "./settings";
 import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
@@ -93,6 +93,8 @@ export interface InvokeMap {
   "models:download": [[id: string], void];
   "models:cancel": [[id: string], void];
   "models:delete": [[id: string], void];
+  "models:setup": [[], SetupStatus];
+  "models:setupRetry": [[], void];
   "app:info": [[], { version: string; modelsDir: string; userData: string; meetingsDir: string; apiToken: string | null; mcpCommand: string }];
   "app:pickFolder": [[], string | null];
   "app:deleteAllAudio": [[], void];
@@ -212,7 +214,7 @@ export const INVOKE_CHANNELS = [
   "settings:get", "settings:update", "secrets:status", "secrets:set",
   "history:list", "history:delete", "history:copy", "history:toNote",
   "dictionary:list", "dictionary:upsert", "dictionary:delete",
-  "models:list", "models:download", "models:cancel", "models:delete",
+  "models:list", "models:download", "models:cancel", "models:delete", "models:setup", "models:setupRetry",
   "app:info", "app:pickFolder", "app:deleteAllAudio", "app:deleteEverything", "app:setDatabaseEncryption",
   "dictation:toggle",
   "meetings:list", "meetings:get", "meetings:start", "meetings:stop", "meetings:recording", "meetings:rename",

@@ -35,12 +35,20 @@ export type PillState =
 
 export interface ModelInfo {
   id: string;
-  engine: "parakeet" | "whisper" | "llm" | "speaker";
+  engine: "parakeet" | "whisper" | "llm" | "speaker" | "vad";
   name: string;
   sizeMb: number;
   description: string;
   installed: boolean;
   downloading?: { received: number; total: number };
+  /** Why the last automatic download failed (network, cancelled, ...). */
+  error?: string;
+}
+
+/** First-run setup: the models the current settings need, in download order. */
+export interface SetupStatus {
+  models: ModelInfo[];
+  ready: boolean;
 }
 
 export type MeetingKind = "call" | "room" | "import";

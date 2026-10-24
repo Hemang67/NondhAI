@@ -3,6 +3,7 @@ import type { Settings } from "@shared/settings";
 import type { RecordingState } from "@shared/ipc";
 import { APP_NAME, TAGLINE, TAGLINE_MEANING } from "@shared/brand";
 import { cx, Input } from "../components/ui";
+import { SetupBanner } from "../components/SetupBanner";
 import { NavContext, type NavTarget, type Tab } from "../nav";
 import { HistoryPage } from "./HistoryPage";
 import { DictionaryPage } from "./DictionaryPage";
@@ -81,23 +82,26 @@ export function Panel() {
           ))}
           <Shortcuts refreshKey={nav.tab} />
         </nav>
-        <main className="min-w-0 flex-1 overflow-hidden">
-          {nav.tab === "meetings" && <MeetingsPage key={nav.meetingId ?? "list"} initialId={nav.meetingId} at={nav.at} />}
-          {nav.tab === "library" && (nav.projectId ? <VideoEditor key={nav.projectId} id={nav.projectId} /> : <LibraryPage />)}
-          {nav.tab === "notes" && <NotesPage initialId={nav.noteId} />}
-          {nav.tab === "search" && <SearchPage key={nav.query} initialQuery={nav.query ?? ""} />}
-          {!["meetings", "library", "notes", "search"].includes(nav.tab) && (
-            <div className="h-full overflow-y-auto">
-              <div className="mx-auto max-w-4xl p-6">
-                {nav.tab === "history" && <HistoryPage />}
-                {nav.tab === "people" && <PeoplePage />}
-                {nav.tab === "dictionary" && <DictionaryPage />}
-                {nav.tab === "models" && <ModelsPage />}
-                {nav.tab === "settings" && <SettingsPage />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <SetupBanner />
+          <main className="min-h-0 flex-1 overflow-hidden">
+            {nav.tab === "meetings" && <MeetingsPage key={nav.meetingId ?? "list"} initialId={nav.meetingId} at={nav.at} />}
+            {nav.tab === "library" && (nav.projectId ? <VideoEditor key={nav.projectId} id={nav.projectId} /> : <LibraryPage />)}
+            {nav.tab === "notes" && <NotesPage initialId={nav.noteId} />}
+            {nav.tab === "search" && <SearchPage key={nav.query} initialQuery={nav.query ?? ""} />}
+            {!["meetings", "library", "notes", "search"].includes(nav.tab) && (
+              <div className="h-full overflow-y-auto">
+                <div className="mx-auto max-w-4xl p-6">
+                  {nav.tab === "history" && <HistoryPage />}
+                  {nav.tab === "people" && <PeoplePage />}
+                  {nav.tab === "dictionary" && <DictionaryPage />}
+                  {nav.tab === "models" && <ModelsPage />}
+                  {nav.tab === "settings" && <SettingsPage />}
+                </div>
               </div>
-            </div>
-          )}
-        </main>
+            )}
+          </main>
+        </div>
       </div>
     </NavContext.Provider>
   );

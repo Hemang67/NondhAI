@@ -21,6 +21,7 @@ import { SpeechService } from "./speech/speechService";
 import { LlamaServer } from "./llm/llamaServer";
 import { LlmClient } from "./llm/llm";
 import { ModelManager } from "./models/modelManager";
+import { neededModels } from "./models/registry";
 import { DictationController } from "./dictation/dictationController";
 import { MeetingService } from "./meeting/meetingService";
 import { MeetingDetector } from "./meeting/meetingDetector";
@@ -259,7 +260,13 @@ async function main(): Promise<void> {
 
   const startMeeting = async (opts: { kind: "call" | "room"; title?: string; sourceApp?: string | null }) => {
     const ev = await calendar.current().catch(() => null);
-    const state = await meetingService.start({ ...opts, title: opts.title || ev?.title });
+    const state = await meetingService.start({ ...opts, title: opts.title || ev?.title }).catch((err: Error) => {
+      // Hotkey, tray and toast starts have no caller to show the error, so show it here.
+      log.error("meeting failed to start", err);
+      setPill({ kind: "error", message: `Can't record yet: ${err.message}` });
+      setTimeout(() => setPill({ kind: "hidden" }), 4000);
+      throw err;
+    });
     if (ev) meetings.update(state.id, { attendees: ev.attendees, calendarEventId: ev.id });
     return state;
   };
@@ -430,7 +437,12 @@ async function main(): Promise<void> {
       next.modelsDir !== prev.modelsDir
     ) {
       speech.reload();
-      void speech.warm().catch((e) => log.warn("speech warm-up failed", e));
+      void models
+        .ensure(neededModels(next))
+        .then(() => speech.warm())
+        .catch((e) => log.warn("speech warm-up failed", e));
+    } else if (JSON.stringify(neededModels(next)) !== JSON.stringify(neededModels(prev))) {
+      void models.ensure(neededModels(next));
     }
     if (next.llm.localModel !== prev.llm.localModel || next.llm.localGpu !== prev.llm.localGpu) llama.stop();
     if (next.launchAtLogin !== prev.launchAtLogin) applyLoginItem(next.launchAtLogin);
@@ -504,11 +516,19 @@ async function main(): Promise<void> {
   if (!process.argv.includes(HIDDEN_FLAG)) windows.openPanel();
 
   // Background start-up work: models, warm-up, crash recovery, retention, search index.
+  // Each step runs even if an earlier one failed, so a missing model can't block recovery.
   void (async () => {
+    // Speech first so dictation and meetings work while the larger chat model downloads.
+    const needed = neededModels(settings.get());
+    await models.ensure(needed.filter((id) => id !== settings.get().llm.localModel));
     try {
-      await models.ensureRequired();
       await speech.warm();
       log.info("speech engine ready");
+    } catch (err) {
+      log.error("speech warm-up failed", err);
+    }
+    await models.ensure(needed);
+    try {
       meetingService.recover();
       await screenRecorder.recover();
       meetingService.applyRetention();

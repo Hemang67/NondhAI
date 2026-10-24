@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { Settings } from "@shared/settings";
 
 export interface ModelDef {
   id: string;
@@ -135,6 +136,22 @@ export function modelPath(modelsDir: string, m: ModelDef): string {
 export function isInstalled(modelsDir: string, m: ModelDef): boolean {
   const p = modelPath(modelsDir, m);
   return m.archiveDir ? existsSync(join(p, m.marker ?? "tokens.txt")) : existsSync(p);
+}
+
+/** Small models every feature depends on (VAD, speaker models, search embeddings): ~60 MB. */
+export const REQUIRED_MODELS = ["silero-vad", "pyannote-segmentation-3.0", "campplus-speaker-embedding", "bge-small-embedding"];
+
+/** Everything the current settings need on disk, so a fresh install works without visiting Models. */
+export function neededModels(s: Settings): string[] {
+  // Meetings always run on the Parakeet worker, whatever engine dictation uses.
+  const ids = [...REQUIRED_MODELS, s.stt.parakeetModel];
+  if (s.stt.engine === "whisper") ids.push(s.stt.whisperModel);
+  const usesLocal =
+    (s.cleanup.enabled && s.cleanup.llm.provider === "local") ||
+    s.llm.assistant.provider === "local" ||
+    (s.meetings.summarize && s.llm.summaries.provider === "local");
+  if (usesLocal) ids.push(s.llm.localModel);
+  return ids.filter((id, i) => modelDef(id) && ids.indexOf(id) === i);
 }
 
 export function parakeetDir(modelsDir: string, id: string): string {

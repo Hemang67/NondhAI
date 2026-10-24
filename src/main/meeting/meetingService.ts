@@ -102,13 +102,7 @@ export class MeetingService extends EventEmitter {
     const title =
       opts.title?.trim() ||
       `${opts.sourceApp ? `${opts.sourceApp} call` : opts.kind === "room" ? "In-person meeting" : "Call"} — ${new Date(startedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
-    this.startingId = id;
-    this.d.meetings.create({ id, title, kind: opts.kind, dir, sourceApp: opts.sourceApp ?? null, startedAt });
-    writeFileSync(join(dir, "journal.json"), JSON.stringify({ id, kind: opts.kind, startedAt, status: "recording" }));
-
-    const capture = new AudioCapture();
     const loopback = opts.kind === "call";
-    const files = { mic: openSync(join(dir, "mic.pcm"), "a"), system: loopback ? openSync(join(dir, "system.pcm"), "a") : null };
     const live = new LiveTranscript(opts.kind);
     const onLine = (lines: TranscriptLine[]) => {
       for (const l of lines) {
@@ -116,10 +110,23 @@ export class MeetingService extends EventEmitter {
         this.emit("line", id, l);
       }
     };
+    // Start transcription first: if the speech engine isn't ready this throws before a
+    // "recording" row exists that nothing could ever stop.
+    const mic = await this.d.speech.streamBegin("mic", 0, (seg) => live.addMic(seg, Date.now()));
     const streams = {
-      mic: await this.d.speech.streamBegin("mic", 0, (seg) => live.addMic(seg, Date.now())),
-      system: loopback ? await this.d.speech.streamBegin("system", 0, (seg: Segment) => onLine(live.addSystem(seg))) : null,
+      mic,
+      system: loopback ? await this.d.speech.streamBegin("system", 0, (seg: Segment) => onLine(live.addSystem(seg))).catch((err) => {
+        void this.d.speech.streamEnd(mic);
+        throw err;
+      }) : null,
     };
+
+    this.startingId = id;
+    this.d.meetings.create({ id, title, kind: opts.kind, dir, sourceApp: opts.sourceApp ?? null, startedAt });
+    writeFileSync(join(dir, "journal.json"), JSON.stringify({ id, kind: opts.kind, startedAt, status: "recording" }));
+
+    const capture = new AudioCapture();
+    const files = { mic: openSync(join(dir, "mic.pcm"), "a"), system: loopback ? openSync(join(dir, "system.pcm"), "a") : null };
     const a: Active = {
       id,
       title,
@@ -205,7 +212,12 @@ export class MeetingService extends EventEmitter {
 
   async stop(): Promise<string | null> {
     const a = this.active;
-    if (!a) return null;
+    if (!a) {
+      // A row can say "recording" with nothing behind it (crash, failed start); finish those.
+      this.recover(["recording"]);
+      this.emit("changed");
+      return null;
+    }
     this.active = null;
     clearInterval(a.releaseTimer);
     clearInterval(a.journalTimer);
@@ -237,8 +249,8 @@ export class MeetingService extends EventEmitter {
   }
 
   /** Recordings left in "recording" (crash, reboot) or "processing" are finished on startup. */
-  recover(): void {
-    for (const m of [...this.d.meetings.listByStatus("recording"), ...this.d.meetings.listByStatus("processing")]) {
+  recover(statuses: Array<"recording" | "processing"> = ["recording", "processing"]): void {
+    for (const m of statuses.flatMap((s) => this.d.meetings.listByStatus(s))) {
       if (m.id === this.active?.id || m.id === this.startingId) continue; // being recorded right now
       const mic = join(m.dir, "mic.pcm");
       if (!existsSync(mic) && !existsSync(join(m.dir, "mixed.pcm"))) {

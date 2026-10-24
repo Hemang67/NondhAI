@@ -5,40 +5,56 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { ModelInfo } from "@shared/types";
+import type { ModelInfo, SetupStatus } from "@shared/types";
 import { MODELS, isInstalled, modelDef, modelPath, type ModelDef } from "./registry";
+import { log } from "../log";
 
 const run = promisify(execFile);
 
 /** Download, list and delete local models. Downloads resume from a .part file. */
 export class ModelManager extends EventEmitter {
   private active = new Map<string, { received: number; total: number; abort: AbortController }>();
+  private errors = new Map<string, string>();
 
   constructor(private readonly modelsDir: () => string) {
     super();
   }
 
-  list(): ModelInfo[] {
-    const dir = this.modelsDir();
-    return MODELS.filter((m) => m.engine !== "vad").map((m) => {
-      const d = this.active.get(m.id);
-      return {
-        id: m.id,
-        engine: m.engine as ModelInfo["engine"],
-        name: m.name,
-        sizeMb: m.sizeMb,
-        description: m.description,
-        installed: isInstalled(dir, m),
-        downloading: d ? { received: d.received, total: d.total } : undefined,
-      };
-    });
+  private info(m: ModelDef): ModelInfo {
+    const d = this.active.get(m.id);
+    return {
+      id: m.id,
+      engine: m.engine,
+      name: m.name,
+      sizeMb: m.sizeMb,
+      description: m.description,
+      installed: isInstalled(this.modelsDir(), m),
+      downloading: d ? { received: d.received, total: d.total } : undefined,
+      error: this.errors.get(m.id),
+    };
   }
 
-  /** Small models every feature depends on (VAD, speaker models, search embeddings): ~60 MB. */
-  async ensureRequired(): Promise<void> {
-    for (const id of ["silero-vad", "pyannote-segmentation-3.0", "campplus-speaker-embedding", "bge-small-embedding"]) {
+  list(): ModelInfo[] {
+    return MODELS.filter((m) => m.engine !== "vad").map((m) => this.info(m));
+  }
+
+  /** Progress of the models first-run setup downloads (see neededModels). */
+  setup(ids: string[]): SetupStatus {
+    const models = ids.map((id) => this.info(modelDef(id)!));
+    return { models, ready: models.every((m) => m.installed) };
+  }
+
+  /** Download whatever the settings need (see neededModels); one failed download doesn't stop the rest. */
+  async ensure(ids: string[]): Promise<void> {
+    for (const id of ids) {
       const m = modelDef(id)!;
-      if (!isInstalled(this.modelsDir(), m)) await this.download(id);
+      if (isInstalled(this.modelsDir(), m)) continue;
+      log.info(`downloading missing model ${id} (${m.sizeMb} MB)`);
+      await this.download(id).catch((err: Error) => {
+        log.error(`download of ${id} failed`, err);
+        this.errors.set(id, err.name === "AbortError" ? "Cancelled" : err.message);
+        this.emit("progress", id);
+      });
     }
   }
 
@@ -53,6 +69,7 @@ export class ModelManager extends EventEmitter {
     const abort = new AbortController();
     const state = { received: 0, total: m.sizeMb * 1024 * 1024, abort };
     this.active.set(id, state);
+    this.errors.delete(id);
     this.emit("progress", id);
     try {
       const have = existsSync(part) ? statSync(part).size : 0;

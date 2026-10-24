@@ -47,6 +47,7 @@ const notes = `## Download
 **[NondhAI-Setup-${version}.exe](https://github.com/Hemang67/NondhAI/releases/download/${tag}/NondhAI-Setup-${version}.exe)** — Windows 10/11, 64-bit.
 
 Windows may show "Windows protected your PC" because the installer isn't code-signed yet: click **More info → Run anyway**.
+On first launch the app downloads its speech and AI models (about 2 GB, one time) and shows the progress; after that it runs offline.
 Your meetings, notes and settings are kept when you install a newer version over an older one.
 
 ## Changes

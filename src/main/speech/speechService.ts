@@ -8,7 +8,8 @@ import type { Channel, Segment, Turn } from "@shared/meeting/types";
 import type { ClusterInfo, WorkerRequest, WorkerResponse } from "./workerProtocol";
 import { WhisperServer } from "./whisperServer";
 import { cloudTranscribe } from "./cloudStt";
-import { diarizationFiles, parakeetDir, whisperFile, vadFile } from "../models/registry";
+import { existsSync } from "node:fs";
+import { diarizationFiles, isInstalled, modelDef, parakeetDir, whisperFile, vadFile } from "../models/registry";
 import { log } from "../log";
 
 type Handler = {
@@ -53,6 +54,10 @@ export class SpeechService {
   private ensureWorker(): Promise<void> {
     if (this.workerReady) return this.workerReady;
     const s = this.settings();
+    const parakeet = modelDef(s.stt.parakeetModel);
+    if (!parakeet || !isInstalled(this.modelsDir(), parakeet) || !existsSync(vadFile(this.modelsDir()))) {
+      return Promise.reject(new Error("The speech model is still downloading. See Models for progress, then try again."));
+    }
     const w = utilityProcess.fork(join(__dirname, "speechWorker.js"), [], { serviceName: "Nondh AI speech" });
     this.worker = w;
     this.workerReady = new Promise<void>((resolve, reject) => {
@@ -63,7 +68,15 @@ export class SpeechService {
         if (m.type === "progress") return this.handlers.get(m.id)?.onProgress?.(m.done, m.total);
         if (m.type === "error") {
           log.error("[speech] error", m.message);
-          if (!m.id) return reject(new Error(m.message));
+          if (!m.id) {
+            // Failed to load: drop this worker so the next call starts a fresh one.
+            if (this.worker === w) {
+              this.worker = null;
+              this.workerReady = null;
+            }
+            w.kill();
+            return reject(new Error(m.message));
+          }
           this.handlers.get(m.id)?.reject(new Error(m.message));
           this.handlers.delete(m.id);
           return;
@@ -74,11 +87,13 @@ export class SpeechService {
       });
       w.on("exit", (code) => {
         log.error(`[speech] worker exited (${code})`);
-        this.worker = null;
-        this.workerReady = null;
+        reject(new Error(`speech worker exited (${code})`));
+        if (this.worker === w) {
+          this.worker = null;
+          this.workerReady = null;
+        }
         for (const h of this.handlers.values()) h.reject(new Error("speech worker exited"));
         this.handlers.clear();
-        reject(new Error(`speech worker exited (${code})`));
       });
     });
     this.post({
@@ -173,6 +188,11 @@ export class SpeechService {
 
   streamEnd(id: string): Promise<void> {
     const h = this.handlers.get(id);
+    // No worker means no stream-done will ever arrive; don't leave Stop waiting forever.
+    if (!this.worker) {
+      this.handlers.delete(id);
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       this.handlers.set(id, { ...(h ?? { reject: () => {} }), resolve: () => resolve(), reject: () => resolve() });
       this.post({ type: "stream-end", id });

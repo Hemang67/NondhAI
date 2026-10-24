@@ -32,6 +32,8 @@ Everything runs locally by default (Parakeet / Whisper / Qwen via llama.cpp). Cl
 
 **[Download the latest version](https://github.com/Hemang67/NondhAI/releases/latest)**: get `NondhAI-Setup-<version>.exe` and run it (Windows 10/11, 64-bit). Every earlier version is on the [Releases page](https://github.com/Hemang67/NondhAI/releases).
 
+On first launch the app downloads the speech and AI models it needs (about 2 GB, one time) and shows the progress at the top of the window. After that everything runs offline.
+
 The installer isn't code-signed yet, so Windows may say "Windows protected your PC". Click **More info → Run anyway**. Installing a newer version over an older one keeps your meetings, notes and settings.
 
 ## Develop
@@ -45,7 +47,7 @@ npm run dist           # → release/NondhAI-Setup-x.y.z.exe
 npm run release        # bump "version" and commit first: builds, tags vX.Y.Z, publishes a GitHub Release with the installer
 ```
 
-Bundled binaries live in `resources/bin` (git-ignored): `llama/` (llama.cpp Vulkan build), `whisper/Release/` (whisper.cpp), plus `vd-input.exe` and `vd-audio.exe` built from `native/`. Models download from the app's Models page into the models folder you choose.
+Bundled binaries live in `resources/bin` (git-ignored): `llama/` (llama.cpp Vulkan build), `whisper/Release/` (whisper.cpp), plus `vd-input.exe` and `vd-audio.exe` built from `native/`. Models aren't bundled (they'd push the installer past GitHub's 2 GB file limit): the app downloads the ones the current settings need at start-up (`neededModels` in `src/main/models/registry.ts`), and the rest from the Models page, into the models folder you choose.
 
 Design: `docs/PLAN.md`. Evidence per phase: `docs/evidence/`.
 
