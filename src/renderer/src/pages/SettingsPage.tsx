@@ -182,6 +182,13 @@ export function SettingsPage() {
       <UpdatesCard s={s} update={update} />
 
       <Card title="General">
+        <Row label="Appearance" hint="System follows your Windows light/dark setting.">
+          <Select value={s.ui.theme} onChange={(e) => void update({ ui: { theme: e.target.value } })} aria-label="Appearance">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </Select>
+        </Row>
         <Row label="Start with Windows" hint="Starts hidden in the tray (installed app).">
           <Switch label="Start with Windows" checked={s.launchAtLogin} onChange={(v) => void update({ launchAtLogin: v })} />
         </Row>
@@ -254,7 +261,7 @@ function ModelRow({ label, target, onChange, what }: { label: string; target: Ll
 }
 
 function CalendarCard({ s, update }: { s: Settings; update: (p: unknown) => Promise<void> }) {
-  const [status, setStatus] = useState({ google: false, microsoft: false });
+  const [status, setStatus] = useState({ google: false, microsoft: false, googleBuiltIn: false });
   const [events, setEvents] = useState<Array<{ id: string; title: string; start: number; attendees: string[] }>>([]);
   const [error, setError] = useState("");
   const refresh = () => {
@@ -262,10 +269,10 @@ function CalendarCard({ s, update }: { s: Settings; update: (p: unknown) => Prom
     void window.vd.invoke("calendar:upcoming").then(setEvents).catch(() => {});
   };
   useEffect(refresh, []);
-  const connect = async (p: "google" | "microsoft") => {
+  const connect = async () => {
     setError("");
     try {
-      await window.vd.invoke("calendar:connect", p);
+      await window.vd.invoke("calendar:connect", "google");
       refresh();
     } catch (e) {
       setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
@@ -274,29 +281,26 @@ function CalendarCard({ s, update }: { s: Settings; update: (p: unknown) => Prom
   return (
     <Card
       title="Calendar"
-      description="Read-only. Meetings get their title from the calendar event, and attendee names are offered when you name speakers. Uses your own OAuth app (see docs/CALENDAR.md)."
+      description="Read-only Google Calendar. Meetings get their title from the calendar event, and attendee names are offered when you name speakers. Your calendar is read on this computer only."
     >
-      <Row label="Google client ID">
-        <Input value={s.calendar.googleClientId} onChange={(e) => void update({ calendar: { googleClientId: e.target.value.trim() } })} />
-      </Row>
-      <Row label="Google client secret" hint="Google issues one even for desktop apps.">
-        <Input type="password" value={s.calendar.googleClientSecret} onChange={(e) => void update({ calendar: { googleClientSecret: e.target.value.trim() } })} />
-      </Row>
-      <Row label="Microsoft client ID" hint="Azure app registration, “Mobile and desktop” redirect http://localhost.">
-        <Input value={s.calendar.microsoftClientId} onChange={(e) => void update({ calendar: { microsoftClientId: e.target.value.trim() } })} />
-      </Row>
+      {status.googleBuiltIn ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-fg-muted">Advanced: use your own Google OAuth app</summary>
+          <GoogleClientFields s={s} update={update} />
+        </details>
+      ) : (
+        <GoogleClientFields s={s} update={update} />
+      )}
       <div className="flex flex-wrap gap-2 pt-2">
-        {(["google", "microsoft"] as const).map((p) =>
-          status[p] ? (
-            <Button key={p} onClick={() => void window.vd.invoke("calendar:disconnect", p).then(refresh)}>
-              Disconnect {p === "google" ? "Google" : "Microsoft"}
-            </Button>
-          ) : (
-            <Button key={p} variant="primary" onClick={() => void connect(p)}>
-              Connect {p === "google" ? "Google" : "Microsoft"}
-            </Button>
-          ),
+        {status.google ? (
+          <Button onClick={() => void window.vd.invoke("calendar:disconnect", "google").then(refresh)}>Disconnect Google</Button>
+        ) : (
+          <Button variant="primary" onClick={() => void connect()}>
+            Connect Google
+          </Button>
         )}
+        {/* Microsoft sign-in is paused; anyone connected from an earlier version can still disconnect. */}
+        {status.microsoft && <Button onClick={() => void window.vd.invoke("calendar:disconnect", "microsoft").then(refresh)}>Disconnect Microsoft</Button>}
       </div>
       {error && <p className="pt-2 text-sm text-warn">{error}</p>}
       {events.length > 0 && (
@@ -310,6 +314,19 @@ function CalendarCard({ s, update }: { s: Settings; update: (p: unknown) => Prom
         </ul>
       )}
     </Card>
+  );
+}
+
+function GoogleClientFields({ s, update }: { s: Settings; update: (p: unknown) => Promise<void> }) {
+  return (
+    <>
+      <Row label="Google client ID" hint="See docs/CALENDAR.md.">
+        <Input value={s.calendar.googleClientId} onChange={(e) => void update({ calendar: { googleClientId: e.target.value.trim() } })} />
+      </Row>
+      <Row label="Google client secret" hint="Google issues one even for desktop apps.">
+        <Input type="password" value={s.calendar.googleClientSecret} onChange={(e) => void update({ calendar: { googleClientSecret: e.target.value.trim() } })} />
+      </Row>
+    </>
   );
 }
 

@@ -36,7 +36,8 @@ export interface Settings {
   };
   translate: { target: string };
   paste: { restoreClipboard: boolean; restoreDelayMs: number };
-  ui: { showPill: boolean };
+  /** theme: "system" follows Windows' light/dark setting. */
+  ui: { showPill: boolean; theme: "system" | "light" | "dark" };
   meetings: {
     /** Folder for recordings; empty = <userData>/meetings. */
     dir: string;
@@ -92,7 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   translate: { target: "Spanish" },
   paste: { restoreClipboard: true, restoreDelayMs: 400 },
-  ui: { showPill: true },
+  ui: { showPill: true, theme: "system" },
   meetings: {
     dir: "",
     autoDetect: true,

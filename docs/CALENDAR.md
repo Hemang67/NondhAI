@@ -12,6 +12,8 @@ Nondh AI reads your calendar (read-only) to name meetings after the calendar eve
 
 ## Microsoft 365 / Outlook
 
+> Microsoft sign-in is hidden in Settings for now; only Google can be connected. The steps below are kept for when it returns.
+
 1. Go to <https://entra.microsoft.com/> → **App registrations → New registration**.
 2. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts" (or just your organization).
 3. Redirect URI: platform **Public client/native (mobile & desktop)**, value `http://localhost`.

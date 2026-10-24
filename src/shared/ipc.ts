@@ -1,5 +1,6 @@
 import type { ClipKind, ClipRecord, DictationRecord, DictionaryRow, MeetingRecord, ModelInfo, PersonRecord, PillState, SetupStatus } from "./types";
 import type { Rect } from "./screen";
+import type { CalendarRange } from "./calendar";
 import type { Settings } from "./settings";
 import type { SpeakerLabel, TranscriptLine } from "./meeting/types";
 import type { FolderRecord, NoteRecord, SearchHit } from "./notes";
@@ -142,7 +143,9 @@ export interface InvokeMap {
   "assistant:paste": [[], void];
   "assistant:close": [[], void];
   // calendar
-  "calendar:status": [[], { google: boolean; microsoft: boolean }];
+  "calendar:status": [[], { google: boolean; microsoft: boolean; googleBuiltIn: boolean; googleAccount: string | null }];
+  /** Calendar page: events in [from, to) plus recordings in that range that no event links to. */
+  "calendar:events": [[from: number, to: number], CalendarRange];
   "calendar:connect": [[provider: "google" | "microsoft"], void];
   "calendar:disconnect": [[provider: "google" | "microsoft"], void];
   "calendar:upcoming": [[], Array<{ id: string; title: string; start: number; end: number; attendees: string[]; provider: string }>];
@@ -225,7 +228,7 @@ export const INVOKE_CHANNELS = [
   "notes:list", "notes:get", "notes:create", "notes:update", "notes:delete", "notes:action",
   "folders:list", "folders:create", "folders:rename", "folders:delete", "search:query",
   "assistant:paste", "assistant:close",
-  "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming",
+  "calendar:status", "calendar:connect", "calendar:disconnect", "calendar:upcoming", "calendar:events",
   "updates:status", "updates:check", "updates:install",
   "screen:sources", "screen:pickRegion", "screen:start", "screen:stop", "screen:state", "clips:delete", "region:done",
   "video:library", "video:create", "video:get", "video:save", "video:subtitles", "video:delete", "video:export", "video:cancel",

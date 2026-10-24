@@ -89,3 +89,17 @@ describe("PeopleRepo", () => {
     store.close();
   });
 });
+
+describe("MeetingRepo.inRange", () => {
+  it("returns meetings started in the range, oldest first, without deleted ones", () => {
+    const { store, meetings } = open();
+    const at = (d: number) => new Date(2026, 9, d, 10).getTime();
+    meetings.create({ id: "a", title: "A", kind: "call", dir: "x", startedAt: at(20) });
+    meetings.create({ id: "b", title: "B", kind: "call", dir: "x", startedAt: at(5) });
+    meetings.create({ id: "c", title: "C", kind: "call", dir: "x", startedAt: at(31) + 86400000 }); // 1 Nov
+    meetings.create({ id: "d", title: "D", kind: "call", dir: "x", startedAt: at(12) });
+    meetings.delete("d");
+    expect(meetings.inRange(new Date(2026, 9, 1).getTime(), new Date(2026, 10, 1).getTime()).map((m) => m.id)).toEqual(["b", "a"]);
+    store.close();
+  });
+});

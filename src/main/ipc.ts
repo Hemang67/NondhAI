@@ -22,6 +22,7 @@ import type { AssistantService } from "./assistant/assistantService";
 import type { DictationController } from "./dictation/dictationController";
 import { getSecret, hasSecret, INTERNAL_SECRETS, SECRET_NAMES, setSecret, type SecretName } from "./secrets";
 import { SPEAKER_MODEL, neededModels } from "./models/registry";
+import type { CalendarEvent } from "@shared/calendar";
 import { toDocx } from "./meeting/docx";
 import { apiToken } from "./api/apiServer";
 import { userDataPath } from "./paths";
@@ -419,4 +420,22 @@ export function registerIpc(ctx: AppContext): void {
   handle("calendar:connect", (p) => ctx.calendar.connect(p));
   handle("calendar:disconnect", (p) => ctx.calendar.disconnect(p));
   handle("calendar:upcoming", () => ctx.calendar.upcoming(true));
+  handle("calendar:events", async (from, to) => {
+    let events: CalendarEvent[] = [];
+    let error: string | undefined;
+    try {
+      events = await ctx.calendar.events(from, to);
+    } catch (err) {
+      log.warn("calendar page fetch failed", err);
+      error = (err as Error).message;
+    }
+    const recorded = meetings.inRange(from, to);
+    const byEvent = new Map(recorded.filter((m) => m.calendarEventId).map((m) => [m.calendarEventId!, m.id]));
+    for (const e of events) e.meetingId = byEvent.get(e.id);
+    const shown = new Set(events.map((e) => e.id));
+    const recordings = recorded
+      .filter((m) => !m.calendarEventId || !shown.has(m.calendarEventId))
+      .map((m) => ({ id: m.id, title: m.title, start: m.startedAt, end: m.endedAt ?? m.startedAt + m.durationMs }));
+    return { events, recordings, error };
+  });
 }

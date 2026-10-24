@@ -2,22 +2,18 @@ import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { shell } from "electron";
 import type { Settings } from "@shared/settings";
+import { fromGoogle, type CalendarEvent } from "@shared/calendar";
 import { getSecret, setSecret } from "../secrets";
 import { log } from "../log";
 
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  start: number;
-  end: number;
-  attendees: string[];
-  provider: "google" | "microsoft";
-}
+export type { CalendarEvent };
 
 interface Tokens {
   access: string;
   refresh: string;
   expiresAt: number;
+  /** The signed-in account's email, shown in Settings and on the Calendar page. */
+  account?: string;
 }
 
 type Provider = "google" | "microsoft";
@@ -35,7 +31,14 @@ const CONFIG = {
   },
 } as const;
 
-const b64url = (b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// Google treats a desktop app's client secret as non-confidential; it's kept out of git only
+// so GitHub secret scanning doesn't flag the public repo.
+const BUILT_IN_GOOGLE = {
+  id: import.meta.env.MAIN_VITE_GOOGLE_CLIENT_ID ?? "",
+  secret: import.meta.env.MAIN_VITE_GOOGLE_CLIENT_SECRET ?? "",
+};
+
+const b64url =(b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 /**
  * Read-only calendar access (Google, Microsoft 365/Outlook) with the user's own OAuth app
@@ -47,8 +50,15 @@ export class CalendarService {
 
   constructor(private readonly settings: () => Settings) {}
 
-  status(): { google: boolean; microsoft: boolean } {
-    return { google: !!getSecret("google-oauth"), microsoft: !!getSecret("microsoft-oauth") };
+  status(): { google: boolean; microsoft: boolean; googleBuiltIn: boolean; googleAccount: string | null } {
+    const google = getSecret("google-oauth");
+    let googleAccount: string | null = null;
+    try {
+      googleAccount = google ? ((JSON.parse(google) as Tokens).account ?? null) : null;
+    } catch {
+      // unreadable token: treated as connected without a name
+    }
+    return { google: !!google, microsoft: !!getSecret("microsoft-oauth"), googleBuiltIn: this.googleBuiltIn, googleAccount };
   }
 
   disconnect(p: Provider): void {
@@ -56,11 +66,26 @@ export class CalendarService {
     this.cache = { at: 0, events: [] };
   }
 
-  private clientId(p: Provider): string {
+  /** The publisher's Google OAuth app, built in from .env.local at build time (see .env.example). */
+  get googleBuiltIn(): boolean {
+    return !!BUILT_IN_GOOGLE.id;
+  }
+
+  /** A client ID entered in Settings (with its own secret) wins over the built-in Google app. */
+  private oauthApp(p: Provider): { id: string; secret: string } {
     const c = this.settings().calendar;
-    const id = p === "google" ? c.googleClientId : c.microsoftClientId;
-    if (!id) throw new Error(`Add your ${p === "google" ? "Google" : "Microsoft"} OAuth client ID in Settings → Calendar first.`);
-    return id;
+    const app =
+      p === "microsoft"
+        ? { id: c.microsoftClientId, secret: "" }
+        : c.googleClientId
+          ? { id: c.googleClientId, secret: c.googleClientSecret }
+          : BUILT_IN_GOOGLE;
+    if (!app.id) throw new Error(`Add your ${p === "google" ? "Google" : "Microsoft"} OAuth client ID in Settings → Calendar first.`);
+    return app;
+  }
+
+  private clientId(p: Provider): string {
+    return this.oauthApp(p).id;
   }
 
   /** Browser sign-in with PKCE and a one-shot localhost redirect. */
@@ -110,14 +135,20 @@ export class CalendarService {
       redirect_uri: redirectUri,
       code_verifier: verifier,
     });
+    // The primary calendar's id is the account's email (no extra scope needed).
+    if (p === "google") {
+      const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", { headers: { authorization: `Bearer ${tokens.access}` } }).catch(() => null);
+      if (r?.ok) tokens.account = ((await r.json()) as { id?: string }).id;
+    }
     setSecret(`${p}-oauth`, JSON.stringify(tokens));
+    this.cache = { at: 0, events: [] };
     log.info(`calendar connected: ${p}`);
   }
 
   private async exchange(p: Provider, body: Record<string, string>, previousRefresh?: string): Promise<Tokens> {
-    const form = new URLSearchParams({ client_id: this.clientId(p), ...body });
-    const secret = this.settings().calendar.googleClientSecret;
-    if (p === "google" && secret) form.set("client_secret", secret);
+    const app = this.oauthApp(p);
+    const form = new URLSearchParams({ client_id: app.id, ...body });
+    if (app.secret) form.set("client_secret", app.secret);
     if (p === "microsoft") form.set("scope", CONFIG.microsoft.scope);
     const r = await fetch(CONFIG[p].token, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form });
     if (!r.ok) throw new Error(`${p} token request failed: ${r.status} ${(await r.text()).slice(0, 200)}`);
@@ -130,69 +161,81 @@ export class CalendarService {
     if (!raw) return null;
     let t = JSON.parse(raw) as Tokens;
     if (Date.now() > t.expiresAt) {
-      t = await this.exchange(p, { grant_type: "refresh_token", refresh_token: t.refresh }, t.refresh);
+      t = { ...(await this.exchange(p, { grant_type: "refresh_token", refresh_token: t.refresh }, t.refresh)), account: t.account };
       setSecret(`${p}-oauth`, JSON.stringify(t));
     }
     return t.access;
   }
 
+  /**
+   * Every event between `from` and `to` in the connected calendars (all pages, all-day events
+   * included). Throws when a calendar can't be read, so the Calendar page can say why.
+   */
+  async events(from: number, to: number): Promise<CalendarEvent[]> {
+    const events: CalendarEvent[] = [];
+    const timeMin = new Date(from).toISOString();
+    const timeMax = new Date(to).toISOString();
+    const g = await this.accessToken("google");
+    if (g) {
+      let pageToken = "";
+      do {
+        const q = new URLSearchParams({ timeMin, timeMax, singleEvents: "true", orderBy: "startTime", maxResults: "2500" });
+        if (pageToken) q.set("pageToken", pageToken);
+        const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { authorization: `Bearer ${g}` } });
+        if (!r.ok) throw new Error(`Google Calendar: ${r.status} ${(await r.text()).slice(0, 200)}`);
+        const j = (await r.json()) as { items?: Array<Record<string, any>>; nextPageToken?: string };
+        for (const e of j.items ?? []) {
+          const ev = fromGoogle(e);
+          if (ev) events.push(ev);
+        }
+        pageToken = j.nextPageToken ?? "";
+      } while (pageToken);
+      log.info(`google calendar: ${events.length} events from ${timeMin} to ${timeMax}`);    }
+    const m = await this.accessToken("microsoft");
+    if (m) {
+      let url: string | undefined =
+        `https://graph.microsoft.com/v1.0/me/calendarView?${new URLSearchParams({ startDateTime: timeMin, endDateTime: timeMax, $top: "500", $orderby: "start/dateTime" })}`;
+      while (url) {
+        const r = await fetch(url, { headers: { authorization: `Bearer ${m}`, Prefer: 'outlook.timezone="UTC"' } });
+        if (!r.ok) throw new Error(`Outlook calendar: ${r.status} ${(await r.text()).slice(0, 200)}`);
+        const j = (await r.json()) as { value?: Array<Record<string, any>>; "@odata.nextLink"?: string };
+        for (const e of j.value ?? []) {
+          if (e.isCancelled) continue;
+          events.push({
+            id: `microsoft:${e.id}`,
+            title: e.subject || "(no title)",
+            start: Date.parse(`${e.start.dateTime}Z`),
+            end: Date.parse(`${e.end.dateTime}Z`),
+            allDay: !!e.isAllDay,
+            attendees: (e.attendees ?? []).map((a: any) => a.emailAddress?.name || a.emailAddress?.address).filter(Boolean),
+            provider: "microsoft",
+            joinUrl: e.onlineMeeting?.joinUrl || undefined,
+            location: e.location?.displayName || undefined,
+            link: e.webLink || undefined,
+          });
+        }
+        url = j["@odata.nextLink"];
+      }
+    }
+    return events.sort((a, b) => a.start - b.start);
+  }
+
+  /** Recent and next few days' events, cached for 5 minutes (used to title new recordings). */
   async upcoming(force = false): Promise<CalendarEvent[]> {
     if (!force && Date.now() - this.cache.at < 5 * 60 * 1000) return this.cache.events;
-    const from = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
-    const to = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
-    const events: CalendarEvent[] = [];
+    let events: CalendarEvent[] = [];
     try {
-      const g = await this.accessToken("google");
-      if (g) {
-        const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "100" });
-        const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { authorization: `Bearer ${g}` } });
-        if (r.ok) {
-          const j = (await r.json()) as { items?: Array<Record<string, any>> };
-          for (const e of j.items ?? []) {
-            if (!e.start?.dateTime) continue; // skip all-day events
-            events.push({
-              id: `google:${e.id}`,
-              title: e.summary ?? "(no title)",
-              start: Date.parse(e.start.dateTime),
-              end: Date.parse(e.end.dateTime),
-              attendees: (e.attendees ?? []).filter((a: any) => !a.self && !a.resource).map((a: any) => a.displayName || a.email),
-              provider: "google",
-            });
-          }
-        } else log.warn(`google calendar ${r.status}`);
-      }
-      const m = await this.accessToken("microsoft");
-      if (m) {
-        const q = new URLSearchParams({ startDateTime: from, endDateTime: to, $top: "100", $orderby: "start/dateTime" });
-        const r = await fetch(`https://graph.microsoft.com/v1.0/me/calendarView?${q}`, {
-          headers: { authorization: `Bearer ${m}`, Prefer: 'outlook.timezone="UTC"' },
-        });
-        if (r.ok) {
-          const j = (await r.json()) as { value?: Array<Record<string, any>> };
-          for (const e of j.value ?? []) {
-            if (e.isAllDay) continue;
-            events.push({
-              id: `microsoft:${e.id}`,
-              title: e.subject ?? "(no title)",
-              start: Date.parse(`${e.start.dateTime}Z`),
-              end: Date.parse(`${e.end.dateTime}Z`),
-              attendees: (e.attendees ?? []).map((a: any) => a.emailAddress?.name || a.emailAddress?.address).filter(Boolean),
-              provider: "microsoft",
-            });
-          }
-        } else log.warn(`microsoft calendar ${r.status}`);
-      }
+      events = await this.events(Date.now() - 12 * 3600 * 1000, Date.now() + 3 * 86400 * 1000);
     } catch (err) {
       log.warn("calendar fetch failed", err);
     }
-    events.sort((a, b) => a.start - b.start);
     this.cache = { at: Date.now(), events };
     return events;
   }
 
-  /** The event happening now (or starting within 10 minutes), if any. */
+  /** The timed event happening now (or starting within 10 minutes) that you haven't declined. */
   async current(now = Date.now()): Promise<CalendarEvent | null> {
     const events = await this.upcoming();
-    return events.find((e) => e.start - 10 * 60 * 1000 <= now && now <= e.end) ?? null;
+    return events.find((e) => !e.allDay && !e.declined && e.start - 10 * 60 * 1000 <= now && now <= e.end) ?? null;
   }
 }

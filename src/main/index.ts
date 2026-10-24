@@ -33,6 +33,7 @@ import { ApiServer } from "./api/apiServer";
 import { registerApiRoutes } from "./api/routes";
 import { registerIpc, type AppContext } from "./ipc";
 import {
+  applyTheme,
   createAssistantWindow,
   createMeetingWindow,
   createPanelWindow,
@@ -118,6 +119,7 @@ async function main(): Promise<void> {
   const mediaBase = { url: "" };
   ipcMain.on("media:base", (e) => (e.returnValue = mediaBase.url));
   const settings = new SettingsStore();
+  applyTheme(settings.get().ui.theme);
   const modelsDir = () => resolveModelsDir(settings.get().modelsDir);
   const dbKey = settings.get().privacy.encryptDatabase ? getSecret("db-key") : null;
   adoptEarlierDatabase(userDataPath("nondh.db"));
@@ -446,6 +448,7 @@ async function main(): Promise<void> {
     }
     if (next.llm.localModel !== prev.llm.localModel || next.llm.localGpu !== prev.llm.localGpu) llama.stop();
     if (next.launchAtLogin !== prev.launchAtLogin) applyLoginItem(next.launchAtLogin);
+    if (next.ui.theme !== prev.ui.theme) applyTheme(next.ui.theme);
     if (next.meetings.autoDetect !== prev.meetings.autoDetect) {
       if (next.meetings.autoDetect) detector.start();
       else detector.stop();

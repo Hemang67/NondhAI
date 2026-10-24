@@ -86,6 +86,13 @@ export class MeetingRepo {
     return rows.map(fromRow);
   }
 
+  /** Meetings that started in [from, to), oldest first (Calendar page). */
+  inRange(from: number, to: number): MeetingRecord[] {
+    return (
+      this.db.prepare(`SELECT * FROM meetings WHERE deleted_at IS NULL AND started_at >= ? AND started_at < ? ORDER BY started_at`).all(from, to) as MeetingRow[]
+    ).map(fromRow);
+  }
+
   listByStatus(status: MeetingStatus): MeetingRecord[] {
     return (this.db.prepare(`SELECT * FROM meetings WHERE status = ? AND deleted_at IS NULL`).all(status) as MeetingRow[]).map(fromRow);
   }

@@ -1,9 +1,28 @@
 import { APP_NAME } from "@shared/brand";
-import { app, BrowserWindow, screen, shell } from "electron";
+import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
 import { join } from "node:path";
 import type { PillState } from "@shared/types";
+import type { Settings } from "@shared/settings";
 
 const preload = join(__dirname, "../preload/index.js");
+
+/** Matches --bg in index.css, so windows don't flash the other theme while loading. */
+const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#0b0d10" : "#f7f7f8");
+
+/** Light, dark or follow Windows; every window's CSS follows through prefers-color-scheme. */
+export function applyTheme(theme: Settings["ui"]["theme"]): void {
+  nativeTheme.themeSource = theme === "light" || theme === "dark" ? theme : "system";
+}
+
+// Only opaque windows get a background; the overlays (pill, indicator, toast) stay transparent.
+const opaque = new Set<BrowserWindow>();
+function trackOpaque(win: BrowserWindow): void {
+  opaque.add(win);
+  win.on("closed", () => opaque.delete(win));
+}
+nativeTheme.on("updated", () => {
+  for (const w of opaque) if (!w.isDestroyed()) w.setBackgroundColor(windowBackground());
+});
 
 export function resourcePath(name: string): string {
   return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), "resources", name);
@@ -73,11 +92,12 @@ export function createPanelWindow(): BrowserWindow {
     show: false,
     title: APP_NAME,
     icon: resourcePath("icon.ico"),
-    backgroundColor: "#0b0d10",
+    backgroundColor: windowBackground(),
     autoHideMenuBar: true,
     webPreferences: { preload, sandbox: false },
   });
   denyNewWindows(win);
+  trackOpaque(win);
   loadRoute(win, "panel");
   win.once("ready-to-show", () => win.show());
   return win;
@@ -94,11 +114,12 @@ export function createMeetingWindow(): BrowserWindow {
     show: false,
     title: `${APP_NAME} — Recording`,
     icon: resourcePath("icon.ico"),
-    backgroundColor: "#0b0d10",
+    backgroundColor: windowBackground(),
     autoHideMenuBar: true,
     webPreferences: { preload, sandbox: false },
   });
   denyNewWindows(win);
+  trackOpaque(win);
   loadRoute(win, "meeting-live");
   win.once("ready-to-show", () => win.show());
   return win;
