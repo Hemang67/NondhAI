@@ -122,6 +122,14 @@ export function createMeetingWindow(): BrowserWindow {
   trackOpaque(win);
   loadRoute(win, "meeting-live");
   win.once("ready-to-show", () => win.show());
+  // A crashed or hung page leaves a blank window with no Stop button. The page holds nothing
+  // that isn't fetched again on load, so restart it.
+  win.webContents.on("render-process-gone", () => {
+    if (!win.isDestroyed()) win.webContents.reload();
+  });
+  win.webContents.on("unresponsive", () => {
+    if (!win.isDestroyed()) win.webContents.forcefullyCrashRenderer();
+  });
   return win;
 }
 

@@ -71,6 +71,17 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", () => windows.openPanel());
   app.setAppUserModelId("com.nondh.ai");
+  // A blank window says nothing on its own; leave a trace of why in the log.
+  app.on("web-contents-created", (_e, wc) => {
+    const route = () => (wc.isDestroyed() ? "?" : wc.getURL().split("#/")[1] || "panel");
+    wc.on("render-process-gone", (_e, d) => log.error(`window ${route()}: page process gone (${d.reason}, code ${d.exitCode})`));
+    wc.on("unresponsive", () => log.warn(`window ${route()}: page not responding`));
+    wc.on("responsive", () => log.info(`window ${route()}: page responding again`));
+    wc.on("console-message", (e) => {
+      if (e.level === "error") log.error(`window ${route()}: ${e.message} (${e.sourceId}:${e.lineNumber})`);
+    });
+  });
+  app.on("child-process-gone", (_e, d) => log.error(`${d.type} process gone (${d.reason}, code ${d.exitCode})`));
   void app.whenReady().then(main);
 }
 
@@ -291,8 +302,8 @@ async function main(): Promise<void> {
   });
   meetingService.on("line", (id: string, line: unknown) => broadcast("meeting:line", id, line));
   meetingService.on("level", (mic: number, sys: number) => {
-    windows.meeting?.webContents.send("meeting:level", mic, sys);
-    windows.rec?.webContents.send("meeting:level", mic, sys);
+    // Either window may have been closed mid-meeting; levels arrive many times a second.
+    for (const w of [windows.meeting, windows.rec]) if (w && !w.isDestroyed()) w.webContents.send("meeting:level", mic, sys);
   });
   meetingService.on("progress", (id: string, text: string) => broadcast("meeting:progress", id, text));
   meetingService.on("changed", () => {
