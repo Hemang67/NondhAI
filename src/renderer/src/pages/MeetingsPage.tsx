@@ -155,7 +155,7 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
     try {
       await fn();
     } catch (e) {
-      alert((e as Error).message);
+      alert((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
     } finally {
       setBusy("");
     }
@@ -186,6 +186,20 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
             </Button>
           )}
           <ExportMenu id={id} disabled={m.status !== "ready"} />
+          {(m.status === "ready" || m.status === "failed") && (
+            <Button
+              disabled={!!busy}
+              title="Use a transcript from Meet, Teams, Zoom, Otter, Supernormal, subtitles, Word or text, and summarize it"
+              onClick={() => {
+                if (d.lines.length && !confirm("Replace this meeting's transcript with the one in the file?")) return;
+                void run("Importing…", async () => {
+                  if (await window.vd.invoke("meetings:importTranscript", id)) setTab("summary");
+                });
+              }}
+            >
+              {busy === "Importing…" ? busy : "Import transcript…"}
+            </Button>
+          )}
           <Button onClick={() => void window.vd.invoke("meetings:toNote", id).then((n) => nav({ tab: "notes", noteId: n.id }))} disabled={m.status !== "ready"}>
             Make note
           </Button>
@@ -263,9 +277,17 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
 
       {m.status === "ready" && (
         <footer className="mt-8 flex flex-wrap gap-2 border-t border-line pt-4">
-          <Button variant="ghost" onClick={() => void window.vd.invoke("meetings:reprocess", id)}>
-            Re-process (re-detect speakers)
-          </Button>
+          {m.audioFile && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                (!d.lines.length || confirm("Re-process makes a new transcript from the audio, replacing the current one (including an imported one). Continue?")) &&
+                void window.vd.invoke("meetings:reprocess", id)
+              }
+            >
+              Re-process (re-detect speakers)
+            </Button>
+          )}
           {m.audioFile && (
             <Button variant="ghost" onClick={() => confirm("Delete this meeting's audio? The transcript is kept.") && void window.vd.invoke("meetings:deleteAudio", id)}>
               Delete audio
@@ -458,7 +480,9 @@ function SpeakersPanel({ id, d }: { id: string; d: MeetingDetail }) {
                 ? "Named by you · voice saved"
                 : s.personId
                   ? `Recognized by voice · ${s.confidence} confidence (${Math.round((s.score ?? 0) * 100)}%)`
-                  : "Unknown voice — type a name to remember it"}
+                  : /^t\d+$/.test(s.key)
+                    ? "From the imported transcript"
+                    : "Unknown voice — type a name to remember it"}
           </div>
         </div>
       ))}

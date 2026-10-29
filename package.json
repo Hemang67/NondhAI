@@ -1,7 +1,7 @@
 {
   "name": "nondh-ai",
   "productName": "Nondh AI",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Nondh AI — Darek vaat ni nondh. Offline-first dictation, meeting notes and screen recording for Windows",
   "main": "out/main/index.js",
   "private": true,
@@ -57,6 +57,7 @@
     "docx": "^9.14.0",
     "electron-updater": "^6.8.10",
     "ffmpeg-static": "^5.3.0",
+    "jszip": "^3.10.2",
     "sherpa-onnx-node": "^1.13.8",
     "zod": "^4.6.7"
   }

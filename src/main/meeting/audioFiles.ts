@@ -35,6 +35,33 @@ export async function decodeToPcm(input: string, out: string): Promise<number> {
   return Math.round((statSync(out).size / 32000) * 1000);
 }
 
+/**
+ * Undo encodeOpus for a re-process: write the meeting's 16 kHz PCM track(s) back from its saved
+ * audio. With two targets (a call) the left channel is me and the right the others; a call whose
+ * other side was silent was saved mono, and then only the first target is written.
+ */
+export async function restorePcm(audioPath: string, targets: string[]): Promise<void> {
+  const plain = audioPath.endsWith(".enc") ? audioPath.replace(/\.enc$/, ".restore.opus") : audioPath;
+  if (plain !== audioPath) writeFileSync(plain, readAudio(audioPath));
+  const base = ["-y", "-hide_banner", "-loglevel", "error", "-i", plain, "-vn"];
+  const pcm = ["-ar", "16000", "-ac", "1", "-f", "s16le"];
+  const ff = (args: string[]) => run(ffmpegPath(), [...base, ...args], { windowsHide: true, maxBuffer: 1 << 20 });
+  try {
+    // Splitting a mono file "works" (ffmpeg upmixes it), which would copy my voice into the
+    // others' track, so check the layout first. ffmpeg with no output exits with an error but
+    // still prints the stream info.
+    const info = await run(ffmpegPath(), ["-hide_banner", "-i", plain], { windowsHide: true }).then(
+      (r) => r.stderr,
+      (e: { stderr?: string }) => e.stderr ?? "",
+    );
+    if (targets.length === 2 && /Audio:.*\bstereo\b/.test(info)) {
+      await ff(["-filter_complex", "[0:a]channelsplit=channel_layout=stereo[l][r]", "-map", "[l]", ...pcm, targets[0]!, "-map", "[r]", ...pcm, targets[1]!]);
+    } else await ff([...pcm, targets[0]!]);
+  } finally {
+    if (plain !== audioPath) rmSync(plain, { force: true });
+  }
+}
+
 // ---- encryption at rest (AES-256-GCM, key kept with DPAPI) ----
 
 function audioKey(): Buffer {

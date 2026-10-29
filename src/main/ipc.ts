@@ -24,6 +24,9 @@ import { getSecret, hasSecret, INTERNAL_SECRETS, SECRET_NAMES, setSecret, type S
 import { SPEAKER_MODEL, neededModels } from "./models/registry";
 import type { CalendarEvent } from "@shared/calendar";
 import { toDocx } from "./meeting/docx";
+import { TRANSCRIPT_EXTENSIONS } from "./meeting/transcriptFiles";
+
+const AUDIO_VIDEO = ["wav", "mp3", "m4a", "aac", "ogg", "opus", "flac", "webm", "mp4", "mkv", "mov", "wma"];
 import { apiToken } from "./api/apiServer";
 import { userDataPath } from "./paths";
 import { log } from "./log";
@@ -281,12 +284,25 @@ export function registerIpc(ctx: AppContext): void {
     if (!files.length) {
       const r = await dialog.showOpenDialog({
         properties: ["openFile", "multiSelections"],
-        filters: [{ name: "Audio and video", extensions: ["wav", "mp3", "m4a", "aac", "ogg", "opus", "flac", "webm", "mp4", "mkv", "mov", "wma"] }],
+        filters: [
+          { name: "Recordings and transcripts", extensions: [...AUDIO_VIDEO, ...TRANSCRIPT_EXTENSIONS] },
+          { name: "Audio and video", extensions: AUDIO_VIDEO },
+          { name: "Transcripts", extensions: TRANSCRIPT_EXTENSIONS },
+        ],
       });
       if (r.canceled) return [];
       files = r.filePaths;
     }
     return ctx.meetingService.importFiles(files);
+  });
+  handle("meetings:importTranscript", async (id) => {
+    const r = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "Transcripts (Meet, Teams, Zoom, Otter, subtitles, Word, text)", extensions: TRANSCRIPT_EXTENSIONS }],
+    });
+    if (r.canceled || !r.filePaths[0]) return false;
+    await ctx.meetingService.importTranscript(id, r.filePaths[0]);
+    return true;
   });
   handle("meetings:toNote", (id) => {
     const existing = notes.bySource("meeting", id);

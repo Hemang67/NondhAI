@@ -119,6 +119,8 @@ export interface InvokeMap {
   "meetings:delete": [[id: string], void];
   "meetings:reprocess": [[id: string], void];
   "meetings:import": [[paths?: string[]], string[]];
+  /** Pick a transcript file for this meeting; false when the picker was cancelled. */
+  "meetings:importTranscript": [[id: string], boolean];
   "meetings:toNote": [[id: string], NoteRecord];
   "meetings:copyConsent": [[], void];
   // people
@@ -224,7 +226,7 @@ export const INVOKE_CHANNELS = [
   "dictation:toggle",
   "meetings:list", "meetings:get", "meetings:start", "meetings:stop", "meetings:recording", "meetings:rename",
   "meetings:renameSpeaker", "meetings:setLineSpeaker", "meetings:editLine", "meetings:summarize", "meetings:ask",
-  "meetings:export", "meetings:deleteAudio", "meetings:delete", "meetings:reprocess", "meetings:import",
+  "meetings:export", "meetings:deleteAudio", "meetings:delete", "meetings:reprocess", "meetings:import", "meetings:importTranscript",
   "meetings:toNote", "meetings:copyConsent",
   "people:list", "people:rename", "people:delete", "people:enroll", "toast:respond",
   "notes:list", "notes:get", "notes:create", "notes:update", "notes:delete", "notes:action",

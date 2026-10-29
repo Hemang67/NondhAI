@@ -6,11 +6,13 @@ import { assembleTranscript } from "@shared/meeting/assemble";
 import { LiveTranscript } from "@shared/meeting/live";
 import { buildSummaryMessages, chunkTranscript, mergeSummaries, parseSummary } from "@shared/meeting/summary";
 import { transcriptForLlm } from "@shared/meeting/export";
+import { buildImportedTranscript, parseTranscript } from "@shared/meeting/transcriptImport";
 import type { Segment, TranscriptLine } from "@shared/meeting/types";
 import type { MeetingKind, MeetingRecord } from "@shared/types";
 import type { Settings } from "@shared/settings";
 import { AudioCapture } from "./audioCapture";
-import { decodeToPcm, encodeOpus, encryptFile } from "./audioFiles";
+import { decodeToPcm, encodeOpus, encryptFile, restorePcm } from "./audioFiles";
+import { isTranscriptFile, readTranscriptFile } from "./transcriptFiles";
 import type { SpeechService } from "../speech/speechService";
 import type { ClipRepo, MeetingRepo, PeopleRepo } from "../storage/meetings";
 import type { LlmClient } from "../llm/llm";
@@ -278,6 +280,7 @@ export class MeetingService extends EventEmitter {
       ids.push(id);
       this.queue = this.queue
         .then(async () => {
+          if (isTranscriptFile(p)) return this.importTranscript(id, p);
           const ms = await decodeToPcm(p, join(dir, "mixed.pcm"));
           this.d.meetings.update(id, { durationMs: ms });
           await this.process(id);
@@ -290,6 +293,32 @@ export class MeetingService extends EventEmitter {
     }
     this.emit("changed");
     return ids;
+  }
+
+  /**
+   * Use a transcript file (from Meet, Teams, Zoom, Otter, Supernormal, or a Nondh AI export) as
+   * the meeting's transcript, replacing any it had, then summarize it.
+   */
+  async importTranscript(id: string, path: string): Promise<void> {
+    const m = this.d.meetings.get(id);
+    if (!m) throw new Error("meeting not found");
+    const turns = parseTranscript(await readTranscriptFile(path), basename(path));
+    if (!turns.length) throw new Error("No transcript text was found in this file.");
+    const { lines, speakers, durationMs } = buildImportedTranscript(turns, (name) => {
+      const p = this.d.people.findByName(name);
+      return p ? { id: p.id, isMe: p.isMe } : null;
+    });
+    this.d.meetings.replaceLines(id, lines, true);
+    this.d.meetings.setSpeakers(id, speakers);
+    this.d.meetings.update(id, { status: "ready", error: null, ...(m.durationMs ? {} : { durationMs }) });
+    log.info(`meeting ${id}: imported transcript ${basename(path)}: ${lines.length} lines, ${speakers.length} speakers`);
+    this.emit("changed");
+    const s = this.d.settings();
+    if (!s.meetings.summarize) return;
+    await this.summarize(id).catch((err: Error) => {
+      log.warn("summary failed", err);
+      throw new Error(`The transcript was imported, but the summary failed: ${err.message}`);
+    });
   }
 
   /** Re-run the final pass (e.g. after enrolling a voice or downloading speaker models). */
@@ -312,6 +341,20 @@ export class MeetingService extends EventEmitter {
       const primaryPath = m.kind === "import" ? mixed : micPcm;
       const progress = (stage: string) => (done: number, total: number) => this.emit("progress", id, `${stage} ${done}/${total}`);
       const hasAudio = (p: string) => existsSync(p) && statSync(p).size > 32000;
+      const pcm = m.kind === "import" ? [mixed] : call ? [micPcm, sysPcm] : [micPcm];
+
+      // A processed meeting keeps only its compressed audio: unpack it again for a re-process.
+      // Without any audio, stop here rather than replace the transcript with nothing.
+      let restored = false;
+      if (!pcm.some(hasAudio)) {
+        if (!m.audioFile || !existsSync(join(m.dir, m.audioFile))) {
+          if (this.d.meetings.lines(id).length) throw new Error("The recording's audio is no longer available, so it can't be processed again.");
+        } else {
+          this.emit("progress", id, "Preparing audio");
+          await restorePcm(join(m.dir, m.audioFile), pcm);
+          restored = true;
+        }
+      }
 
       const primary = hasAudio(primaryPath) ? await this.d.speech.finalPass(primaryPath, call ? "mic" : "mixed", progress("Transcribing")) : [];
       const system = call && hasAudio(sysPcm) ? await this.d.speech.finalPass(sysPcm, "system", progress("Transcribing others")) : [];
@@ -336,10 +379,11 @@ export class MeetingService extends EventEmitter {
         `meeting ${id}: ${out.lines.length} lines, ${out.speakers.length} speakers, ${out.echoWordsRemoved} echo words removed`,
       );
 
-      // Compress the audio; keep the PCM only if encoding fails.
+      // Compress the audio; keep the PCM only if encoding fails. Unpacked copies of audio that is
+      // already saved are just removed.
       const s = this.d.settings();
-      const pcm = m.kind === "import" ? [mixed] : call ? [micPcm, sysPcm] : [micPcm];
-      if (pcm.some(hasAudio)) {
+      if (restored) for (const f of pcm) rmSync(f, { force: true });
+      else if (pcm.some(hasAudio)) {
         this.emit("progress", id, "Compressing audio");
         let audio = join(m.dir, "audio.opus");
         await encodeOpus(pcm, audio);
