@@ -33,7 +33,7 @@ export function registerApiRoutes(api: ApiServer, ctx: AppContext): void {
       return f === "srt" ? toSrt(input) : f === "vtt" ? toVtt(input) : toText(input);
     })
     .route("POST", "/v1/meetings/start", ({ body }) => ctx.startMeeting({ kind: body?.kind === "room" ? "room" : "call", title: body?.title }))
-    .route("POST", "/v1/meetings/stop", async () => ({ id: await ctx.meetingService.stop() }))
+    .route("POST", "/v1/meetings/stop", async () => ({ id: await ctx.meetingService.stop("local API") }))
     .route("POST", "/v1/meetings/import", async ({ body }) => ({ ids: await ctx.meetingService.importFiles(Array.isArray(body?.paths) ? body.paths : []) }))
     .route("POST", "/v1/ask", ({ body }) => askMeetings(ctx, body?.meetingId ?? null, String(body?.question ?? "")))
     .route("GET", "/v1/notes", ({ query }) => notes.list({ query: query.get("q") ?? undefined }))

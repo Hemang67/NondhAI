@@ -109,6 +109,8 @@ const windows = {
       if (!quitting) {
         e.preventDefault();
         this.panel?.hide();
+        // Hidden in the tray, the page keeps running; don't leave audio or video playing.
+        this.panel?.webContents.send("panel:hidden");
       }
     });
   },
@@ -402,7 +404,7 @@ async function main(): Promise<void> {
     toastAction: (action) => {
       windows.toast?.hide();
       if (action === "record") void startMeeting({ kind: "call", sourceApp: detectedApp });
-      if (action === "stop") void meetingService.stop();
+      if (action === "stop") void meetingService.stop("call-ended prompt");
     },
     modelsDir,
     onRecorderChunk: (id, samples) => dictation.onAudio(id, samples),
@@ -438,7 +440,7 @@ async function main(): Promise<void> {
   };
   input.on("chord", (kind: string, name: string) => {
     if (name !== "meeting" || kind !== "down") return;
-    if (meetingService.recording) void meetingService.stop();
+    if (meetingService.recording) void meetingService.stop("meeting hotkey");
     else void startMeeting({ kind: "call" });
   });
   settings.on("change", (next, prev) => {
@@ -482,7 +484,7 @@ async function main(): Promise<void> {
         { label: "Start / stop dictation", click: () => dictation.toggleFromUi() },
         { type: "separator" },
         recording
-          ? { label: "Stop recording meeting", click: () => void meetingService.stop() }
+          ? { label: "Stop recording meeting", click: () => void meetingService.stop("tray menu") }
           : { label: "Record a call", click: () => void startMeeting({ kind: "call" }) },
         ...(recording ? [] : [{ label: "Record an in-person meeting", click: () => void startMeeting({ kind: "room" }) }]),
         ...(screenRecorder.state ? [{ label: "Stop screen recording", click: () => void screenRecorder.stop() }] : []),
@@ -512,7 +514,7 @@ async function main(): Promise<void> {
       // Finish writing the recording before exiting; processing resumes at next start.
       e.preventDefault();
       stopping = true;
-      void meetingService.stop().finally(() => app.quit());
+      void meetingService.stop("app quitting").finally(() => app.quit());
       return;
     }
     input.stop();

@@ -142,6 +142,7 @@ function usePlayer(spec: ProjectSpec, detail: VideoProjectDetail | null) {
     video.current?.pause();
     syncAudio(tRef.current, false);
   }, [syncAudio]);
+  useEffect(() => window.vd.on("panel:hidden", pause), [pause]);
 
   const play = useCallback(() => {
     const s = specRef.current;

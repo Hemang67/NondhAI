@@ -220,7 +220,7 @@ export function registerIpc(ctx: AppContext): void {
     };
   });
   handle("meetings:start", (opts) => ctx.startMeeting(opts));
-  handle("meetings:stop", () => ctx.meetingService.stop());
+  handle("meetings:stop", (by) => ctx.meetingService.stop(by ?? "app window"));
   handle("meetings:recording", () => ctx.meetingService.recording);
   handle("meetings:rename", (id, title) => {
     meetings.update(id, { title: title.trim() || "Untitled meeting" });

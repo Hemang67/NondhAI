@@ -60,7 +60,11 @@ export function MeetingLive() {
     [rec],
   );
   useEffect(() => window.vd.on("meeting:level", (mic, system) => setLevels({ mic, system })), []);
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [lines.length]);
+  // Braces matter: Chromium's scrollIntoView returns a Promise, and React would call that as the
+  // effect's cleanup on the next line ("destroy_ is not a function"), breaking the window.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [lines.length]);
 
   if (!rec) {
     return (
@@ -79,7 +83,7 @@ export function MeetingLive() {
           <span className="size-2.5 animate-pulse rounded-full bg-red-500" aria-hidden />
           <span className="font-semibold">Recording</span>
           <span className="tabular-nums text-fg-muted">{clock(now - rec.startedAt)}</span>
-          <Button variant="danger" className="ml-auto h-7" onClick={() => void window.vd.invoke("meetings:stop")}>
+          <Button variant="danger" className="ml-auto h-7" onClick={() => void window.vd.invoke("meetings:stop", "meeting window")}>
             Stop
           </Button>
         </div>

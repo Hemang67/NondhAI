@@ -108,6 +108,8 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
   const [busy, setBusy] = useState("");
   const audio = useRef<HTMLAudioElement>(null);
   const nav = useNav();
+  // The transcript line under the playhead, and whether to keep it in view.
+  const [playing, setPlaying] = useState<{ lineId: string | null; follow: boolean }>({ lineId: null, follow: false });
 
   const load = useCallback(() => void window.vd.invoke("meetings:get", id).then(setD), [id]);
   useEffect(load, [load]);
@@ -135,6 +137,13 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
   if (!d) return null;
   const m = d.meeting;
   const names = Object.fromEntries(d.speakers.map((s) => [s.key, s.name]));
+  const track = (a: HTMLAudioElement) => {
+    const ms = a.currentTime * 1000;
+    let cur: TranscriptLine | null = null;
+    for (const l of d.lines) if (l.start <= ms && (!cur || l.start >= cur.start)) cur = l;
+    const next = { lineId: cur?.id ?? null, follow: !a.paused };
+    if (next.lineId !== playing.lineId || next.follow !== playing.follow) setPlaying(next);
+  };
   const seek = (ms: number) => {
     if (audio.current) {
       audio.current.currentTime = ms / 1000;
@@ -172,7 +181,7 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {m.status === "recording" && (
-            <Button variant="danger" onClick={() => void window.vd.invoke("meetings:stop")}>
+            <Button variant="danger" onClick={() => void window.vd.invoke("meetings:stop", "meetings page")}>
               Stop recording
             </Button>
           )}
@@ -195,7 +204,21 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
       )}
 
       {m.audioFile && (
-        <audio ref={audio} controls preload="metadata" src={mediaUrl(id)} className="mt-4 w-full" aria-label="Meeting recording" />
+        // Pinned while the transcript scrolls along with playback.
+        <div className="sticky top-0 z-10 bg-bg pt-4">
+          <audio
+            ref={audio}
+            controls
+            preload="metadata"
+            src={mediaUrl(id)}
+            className="w-full"
+            aria-label="Meeting recording"
+            onTimeUpdate={(e) => track(e.currentTarget)}
+            onSeeked={(e) => track(e.currentTarget)}
+            onPlay={(e) => track(e.currentTarget)}
+            onPause={(e) => track(e.currentTarget)}
+          />
+        </div>
       )}
 
       {d.clips.length > 0 && <ScreenClips meetingId={id} clips={d.clips} audio={audio} />}
@@ -231,7 +254,7 @@ function MeetingView({ id, at }: { id: string; at?: number }) {
 
       {tab === "transcript" && (
         <div className="grid gap-6 py-4 lg:grid-cols-[1fr_220px]">
-          <Transcript meetingId={id} lines={d.lines} names={names} speakers={d.speakers} onSeek={m.audioFile ? seek : undefined} highlightAt={at} />
+          <Transcript meetingId={id} lines={d.lines} names={names} speakers={d.speakers} onSeek={m.audioFile ? seek : undefined} highlightAt={at} playing={playing} />
           <SpeakersPanel id={id} d={d} />
         </div>
       )}
@@ -274,8 +297,29 @@ function SummaryView({ s }: { s: NonNullable<MeetingRecord["summary"]> }) {
   );
   return (
     <div>
-      <Section title="Key points" items={s.keyPoints} />
-      <Section title="Decisions" items={s.decisions} />
+      {s.topics?.length ? (
+        // Detailed notes already cover the key points and decisions; don't repeat them.
+        s.topics.map((t, i) => (
+          <section key={i} className="mb-6">
+            <h3 className="mb-2 text-base font-semibold">{t.heading}</h3>
+            {t.sections.map((sec, j) => (
+              <div key={j} className="mb-3">
+                <h4 className="mb-1 text-sm font-semibold text-fg-muted">{sec.heading}</h4>
+                <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                  {sec.points.map((p, k) => (
+                    <li key={k}>{p}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        ))
+      ) : (
+        <>
+          <Section title="Key points" items={s.keyPoints} />
+          <Section title="Decisions" items={s.decisions} />
+        </>
+      )}
       <section className="mb-5">
         <h3 className="mb-1.5 text-sm font-semibold">Action items</h3>
         {s.actionItems.length ? (
@@ -307,6 +351,7 @@ function Transcript({
   speakers,
   onSeek,
   highlightAt,
+  playing,
 }: {
   meetingId: string;
   lines: TranscriptLine[];
@@ -314,8 +359,24 @@ function Transcript({
   speakers: MeetingDetail["speakers"];
   onSeek?: (ms: number) => void;
   highlightAt?: number;
+  playing?: { lineId: string | null; follow: boolean };
 }) {
   const ref = useRef<HTMLOListElement>(null);
+  // Scrolling by hand pauses following for a few seconds, so reading back isn't yanked away.
+  const handScrolled = useRef(0);
+  useEffect(() => {
+    const mark = () => (handScrolled.current = Date.now());
+    window.addEventListener("wheel", mark, { passive: true });
+    window.addEventListener("touchmove", mark, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", mark);
+      window.removeEventListener("touchmove", mark);
+    };
+  }, []);
+  useEffect(() => {
+    if (!playing?.follow || !playing.lineId || Date.now() - handScrolled.current < 4000) return;
+    ref.current?.querySelector(`[data-id="${playing.lineId}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [playing?.lineId, playing?.follow]);
   useEffect(() => {
     if (highlightAt === undefined) return;
     ref.current?.querySelector(`[data-at="${lines.find((l) => l.start >= highlightAt - 2000)?.start}"]`)?.scrollIntoView({ block: "center" });
@@ -324,7 +385,17 @@ function Transcript({
   return (
     <ol ref={ref} className="space-y-3">
       {lines.map((l) => (
-        <li key={l.id} data-at={l.start} className={cx("group", highlightAt !== undefined && Math.abs(l.start - highlightAt) < 2000 && "rounded bg-accent/10")}>
+        <li
+          key={l.id}
+          data-at={l.start}
+          data-id={l.id}
+          aria-current={playing?.lineId === l.id || undefined}
+          className={cx(
+            "group rounded transition-colors",
+            ((highlightAt !== undefined && Math.abs(l.start - highlightAt) < 2000) || playing?.lineId === l.id) && "bg-accent/10",
+            playing?.lineId === l.id && "-mx-2 px-2 py-1",
+          )}
+        >
           <div className="flex items-center gap-2 text-xs">
             <span className="font-semibold" style={{ color: speakerColor(l.speakerKey) }}>
               {names[l.speakerKey] ?? (l.speakerKey === "others" ? "Others" : l.speakerKey === "room" ? "Speaker" : "Unknown")}

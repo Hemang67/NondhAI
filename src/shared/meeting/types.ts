@@ -53,7 +53,17 @@ export interface TranscriptLine {
   uncertainSpeaker: boolean;
 }
 
+/** One subject discussed in the meeting, broken into sub-headings with short points. */
+export interface SummaryTopic {
+  heading: string;
+  sections: Array<{ heading: string; points: string[] }>;
+}
+
 export interface MeetingSummary {
+  /** A short name for the meeting, from what was discussed. */
+  title?: string;
+  /** Detailed notes grouped by topic; absent on summaries made before topics existed. */
+  topics?: SummaryTopic[];
   keyPoints: string[];
   decisions: string[];
   actionItems: Array<{ task: string; owner: string | null; due: string | null }>;

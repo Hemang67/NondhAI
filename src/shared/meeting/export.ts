@@ -43,13 +43,11 @@ function paragraphs(i: ExportInput): Array<{ start: number; end: number; name: s
 
 export function summaryMarkdown(s: MeetingSummary): string {
   const list = (items: string[]) => (items.length ? items.map((x) => `- ${x}`).join("\n") : "- None");
+  const notes = s.topics?.length
+    ? s.topics.flatMap((t) => [`## ${t.heading}`, "", ...t.sections.flatMap((sec) => [`### ${sec.heading}`, list(sec.points), ""])])
+    : ["## Key points", list(s.keyPoints), "", "## Decisions", list(s.decisions), ""];
   return [
-    "## Key points",
-    list(s.keyPoints),
-    "",
-    "## Decisions",
-    list(s.decisions),
-    "",
+    ...notes,
     "## Action items",
     s.actionItems.length
       ? s.actionItems.map((a) => `- [ ] ${a.task}${a.owner ? ` — **${a.owner}**` : ""}${a.due ? ` (due ${a.due})` : ""}`).join("\n")

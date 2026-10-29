@@ -78,6 +78,20 @@ describe("summary parsing", () => {
     });
   });
 
+  it("parses detailed topic notes and the suggested title, dropping empty parts", () => {
+    const s = parseSummary(
+      JSON.stringify({
+        title: " Testing Update Meeting ",
+        topics: [
+          { heading: "Warehouse flow testing", sections: [{ heading: "Current status", points: ["No major issues", " "] }, { heading: "Empty", points: [] }] },
+          { heading: "", sections: [{ heading: "x", points: ["y"] }] },
+        ],
+      }),
+    );
+    expect(s?.title).toBe("Testing Update Meeting");
+    expect(s?.topics).toEqual([{ heading: "Warehouse flow testing", sections: [{ heading: "Current status", points: ["No major issues"] }] }]);
+  });
+
   it("returns null for non-JSON", () => {
     expect(parseSummary("I could not summarize this.")).toBeNull();
   });
@@ -90,5 +104,18 @@ describe("summary parsing", () => {
     ]);
     expect(m.keyPoints).toEqual(["x", "y"]);
     expect(m.actionItems).toHaveLength(1);
+  });
+
+  it("joins a topic that spans two chunks", () => {
+    const empty = { keyPoints: [], decisions: [], actionItems: [], openQuestions: [] };
+    const m = mergeSummaries([
+      { ...empty, title: "Sync", topics: [{ heading: "Testing", sections: [{ heading: "Status", points: ["a"] }] }] },
+      { ...empty, topics: [{ heading: "testing", sections: [{ heading: "Status", points: ["a", "b"] }, { heading: "Next steps", points: ["c"] }] }, { heading: "Scheduling", sections: [{ heading: "Meetings", points: ["d"] }] }] },
+    ]);
+    expect(m.title).toBe("Sync");
+    expect(m.topics).toEqual([
+      { heading: "Testing", sections: [{ heading: "Status", points: ["a", "b"] }, { heading: "Next steps", points: ["c"] }] },
+      { heading: "Scheduling", sections: [{ heading: "Meetings", points: ["d"] }] },
+    ]);
   });
 });

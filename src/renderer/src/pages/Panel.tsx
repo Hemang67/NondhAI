@@ -38,6 +38,15 @@ export function Panel() {
     void window.vd.invoke("meetings:recording").then(setRecording);
     return window.vd.on("meeting:state", setRecording);
   }, []);
+  // Closing the window only hides it to the tray; stop every player on the page. (The video
+  // editor's off-page audio pauses itself on the same event.)
+  useEffect(
+    () =>
+      window.vd.on("panel:hidden", () => {
+        for (const m of document.querySelectorAll<HTMLMediaElement>("audio, video")) m.pause();
+      }),
+    [],
+  );
 
   return (
     <NavContext.Provider value={setNav}>

@@ -167,7 +167,7 @@ export class MeetingService extends EventEmitter {
     capture.on("exit", (code: number | null) => {
       if (this.active === a) {
         log.error(`meeting ${id}: capture exited unexpectedly (${code}); stopping`);
-        void this.stop();
+        void this.stop("audio capture exited");
       }
     });
     capture.start({ loopback, aec: s.meetings.aec });
@@ -210,7 +210,8 @@ export class MeetingService extends EventEmitter {
     this.d.meetings.update(a.id, { durationMs });
   }
 
-  async stop(): Promise<string | null> {
+  /** by: what asked for the stop, for the log. */
+  async stop(by = "unknown"): Promise<string | null> {
     const a = this.active;
     if (!a) {
       // A row can say "recording" with nothing behind it (crash, failed start); finish those.
@@ -238,7 +239,7 @@ export class MeetingService extends EventEmitter {
     }
     const durationMs = Math.round((a.bytes / 32000) * 1000);
     this.d.meetings.update(a.id, { status: "processing", endedAt: Date.now(), durationMs });
-    log.info(`meeting ${a.id} stopped after ${Math.round(durationMs / 1000)} s; processing`);
+    log.info(`meeting ${a.id} stopped by ${by} after ${Math.round(durationMs / 1000)} s; processing`);
     this.emit("state", null);
     this.enqueue(a.id);
     return a.id;
@@ -373,12 +374,14 @@ export class MeetingService extends EventEmitter {
     this.emit("progress", id, "Summarizing");
     const speakers = Object.fromEntries(this.d.meetings.speakers(id).map((sp) => [sp.key, { name: sp.name }]));
     const transcript = transcriptForLlm({ lines: this.d.meetings.lines(id), speakers });
-    // Small local models have small context windows: summarize in pieces and merge.
-    const parts = chunkTranscript(transcript, target.provider === "local" ? 12000 : 400000);
+    // Small local models have small context windows (8k tokens, shared by the transcript piece and
+    // the detailed notes): summarize in pieces and merge.
+    const local = target.provider === "local";
+    const parts = chunkTranscript(transcript, local ? 8000 : 400000);
     const summaries = [];
     for (const part of parts) {
       const r = await this.d.llm.chat(target, buildSummaryMessages(part, { title: m.title, attendees: m.attendees }), {
-        maxTokens: 4000,
+        maxTokens: local ? 5000 : 8000,
         temperature: 0.2,
         effort: "medium",
       });
@@ -386,7 +389,10 @@ export class MeetingService extends EventEmitter {
       if (parsed) summaries.push(parsed);
     }
     if (!summaries.length) throw new Error("The model did not return a usable summary");
-    this.d.meetings.update(id, { summary: mergeSummaries(summaries) });
+    const summary = mergeSummaries(summaries);
+    // Name the meeting from its content, unless someone gave it a real title.
+    const autoTitle = /^(.+ call|Call|In-person meeting) — /.test(m.title);
+    this.d.meetings.update(id, { summary, ...(autoTitle && summary.title ? { title: summary.title } : {}) });
     this.emit("changed");
   }
 

@@ -106,7 +106,7 @@ export interface InvokeMap {
   "meetings:list": [[opts: { query?: string }], MeetingRecord[]];
   "meetings:get": [[id: string], MeetingDetail | null];
   "meetings:start": [[opts: { kind: "call" | "room"; title?: string }], RecordingState];
-  "meetings:stop": [[], string | null];
+  "meetings:stop": [[by?: string], string | null];
   "meetings:recording": [[], RecordingState | null];
   "meetings:rename": [[id: string, title: string], void];
   "meetings:renameSpeaker": [[id: string, key: string, name: string], void];
@@ -185,6 +185,8 @@ export interface EventMap {
   "recorder:stop": [sessionId: string];
   "models:changed": [];
   "history:changed": [];
+  /** The main window was closed to the tray: stop anything playing. */
+  "panel:hidden": [];
   "meeting:state": [RecordingState | null];
   "meeting:line": [meetingId: string, line: TranscriptLine];
   "meeting:level": [mic: number, system: number];
@@ -236,7 +238,7 @@ export const INVOKE_CHANNELS = [
   "video:speechSubtitles",
 ] as const satisfies Keys<InvokeMap>;
 export const EVENT_CHANNELS = [
-  "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed",
+  "pill:state", "recorder:start", "recorder:stop", "models:changed", "history:changed", "panel:hidden",
   "meeting:state", "meeting:line", "meeting:level", "meeting:progress", "meetings:changed", "people:changed",
   "notes:changed", "toast:show", "assistant:state", "updates:status", "screen:state", "screen:begin", "screen:end",
   "video:progress", "video:changed",

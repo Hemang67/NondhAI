@@ -12,8 +12,18 @@ export async function toDocx(i: ExportInput): Promise<Buffer> {
     for (const it of items.length ? items : ["None"]) children.push(new Paragraph({ text: it, bullet: { level: 0 } }));
   };
   if (i.summary) {
-    section("Key points", i.summary.keyPoints);
-    section("Decisions", i.summary.decisions);
+    if (i.summary.topics?.length) {
+      for (const t of i.summary.topics) {
+        children.push(new Paragraph({ text: t.heading, heading: HeadingLevel.HEADING_2 }));
+        for (const sec of t.sections) {
+          children.push(new Paragraph({ text: sec.heading, heading: HeadingLevel.HEADING_3 }));
+          for (const p of sec.points) children.push(new Paragraph({ text: p, bullet: { level: 0 } }));
+        }
+      }
+    } else {
+      section("Key points", i.summary.keyPoints);
+      section("Decisions", i.summary.decisions);
+    }
     section(
       "Action items",
       i.summary.actionItems.map((a) => `${a.task}${a.owner ? ` — ${a.owner}` : ""}${a.due ? ` (due ${a.due})` : ""}`),

@@ -41,7 +41,7 @@ class Fallback extends Component<{ children: ReactNode }, { error: Error | null 
             Reload
           </button>
           {route === "meeting-live" && (
-            <button className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white" onClick={() => void window.vd.invoke("meetings:stop")}>
+            <button className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white" onClick={() => void window.vd.invoke("meetings:stop", "error screen")}>
               Stop recording
             </button>
           )}
