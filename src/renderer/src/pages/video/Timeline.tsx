@@ -6,7 +6,7 @@ import type { Selection } from "./Preview";
 
 export const CLIP_COLORS = ["#0ea5e9", "#a855f7", "#22c55e", "#f59e0b", "#ef4444", "#14b8a6", "#ec4899", "#6366f1"];
 
-type Row = { kind: "blur" | "text" | "image" | "sub"; label: string; items: Array<TimedRange & { id: string; label: string; muted?: boolean }>; color: string };
+type Row = { kind: "blur" | "zoom" | "text" | "image" | "sub"; label: string; items: Array<TimedRange & { id: string; label: string; muted?: boolean }>; color: string };
 
 /**
  * The edit, left to right: the kept parts of each recording, and a row per kind of element.
@@ -76,6 +76,7 @@ export function Timeline({
   const starts = segmentStarts(spec);
   const rows: Row[] = [
     { kind: "blur", label: "Blur", color: "#64748b", items: spec.blurs.map((b) => ({ ...b, label: b.suggested ? `Suggested: ${b.suggested.reason}` : "Blur", muted: !!b.suggested })) },
+    { kind: "zoom", label: "Zoom", color: "#c026d3", items: (spec.zooms ?? []).map((z, i) => ({ ...z, label: `Zoom ${i + 1}` })) },
     { kind: "text", label: "Text", color: "#d97706", items: spec.texts.map((x) => ({ ...x, label: x.text || "Text" })) },
     { kind: "image", label: "Images", color: "#059669", items: spec.images.map((x) => ({ ...x, label: "Image" })) },
     { kind: "sub", label: "Subtitles", color: "#7c3aed", items: spec.subtitles.lines.map((x) => ({ ...x, label: x.text })) },
@@ -85,6 +86,7 @@ export function Timeline({
     update((s) => {
       const fix = <T extends TimedRange & { id: string }>(xs: T[]) => xs.map((x) => (x.id === id ? { ...x, start, end } : x));
       if (kind === "blur") return { ...s, blurs: fix(s.blurs) };
+      if (kind === "zoom") return { ...s, zooms: fix(s.zooms ?? []) };
       if (kind === "text") return { ...s, texts: fix(s.texts) };
       if (kind === "image") return { ...s, images: fix(s.images) };
       return { ...s, subtitles: { ...s.subtitles, lines: fix(s.subtitles.lines) } };

@@ -18,10 +18,11 @@ import { clock, mediaUrl, useNav } from "../../nav";
 import { ExportStatus, useVideoProgress } from "./LibraryPage";
 import { assetUrl, Preview, type DrawMode, type Selection } from "./Preview";
 import { Timeline } from "./Timeline";
-import { BlurPanel, CropPanel, MediaPanel, SubtitlesPanel, TextPanel, TranscriptPanel, type PanelTab } from "./Panels";
+import { BlurPanel, CropPanel, MediaPanel, SubtitlesPanel, TextPanel, TranscriptPanel, ZoomPanel, type PanelTab } from "./Panels";
 
 const TABS: Array<{ id: PanelTab; label: string }> = [
   { id: "blur", label: "Blur" },
+  { id: "zoom", label: "Zoom" },
   { id: "crop", label: "Crop" },
   { id: "text", label: "Text" },
   { id: "media", label: "Media" },
@@ -241,7 +242,7 @@ export function VideoEditor({ id }: { id: string }) {
   }, [reload]);
 
   const empty: ProjectSpec = useMemo(
-    () => ({ version: 1, segments: [], crop: null, blurs: [], texts: [], images: [], meetingAudio: { enabled: true, volume: 1 }, audioTracks: [], subtitles: { lines: [], burnIn: true, exportSrt: true } }),
+    () => ({ version: 1, segments: [], crop: null, blurs: [], zooms: [], texts: [], images: [], meetingAudio: { enabled: true, volume: 1 }, audioTracks: [], subtitles: { lines: [], burnIn: true, exportSrt: true } }),
     [],
   );
   const player = usePlayer(spec ?? empty, detail);
@@ -343,6 +344,7 @@ export function VideoEditor({ id }: { id: string }) {
       if (spec.segments.length === 1) return setError("A video needs at least one part. Cut a range instead.");
       update((s) => deleteSegment(s, s.segments.findIndex((x) => x.id === selection.id)));
     } else if (selection.kind === "blur") update((s) => ({ ...s, blurs: s.blurs.filter((x) => x.id !== selection.id) }));
+    else if (selection.kind === "zoom") update((s) => ({ ...s, zooms: (s.zooms ?? []).filter((x) => x.id !== selection.id) }));
     else if (selection.kind === "text") update((s) => ({ ...s, texts: s.texts.filter((x) => x.id !== selection.id) }));
     else if (selection.kind === "image") update((s) => ({ ...s, images: s.images.filter((x) => x.id !== selection.id) }));
     else if (selection.kind === "sub") update((s) => ({ ...s, subtitles: { ...s.subtitles, lines: s.subtitles.lines.filter((x) => x.id !== selection.id) } }));
@@ -359,6 +361,13 @@ export function VideoEditor({ id }: { id: string }) {
       const bid = newId("b");
       update((s) => ({ ...s, blurs: [...s.blurs, { id: bid, rect: r, start: t, end: total, strength: 20 }] }));
       setSelection({ kind: "blur", id: bid });
+    }
+    if (mode === "zoom") {
+      const zid = newId("z");
+      // Five seconds from the playhead, or the last five seconds near the end.
+      const start = Math.max(0, Math.min(t, total - 5));
+      update((s) => ({ ...s, zooms: [...(s.zooms ?? []), { id: zid, rect: r, start, end: Math.min(total, start + 5), size: 0.9, blur: 20 }] }));
+      setSelection({ kind: "zoom", id: zid });
     }
   };
 
@@ -606,6 +615,7 @@ export function VideoEditor({ id }: { id: string }) {
                 scanned={scanned}
               />
             )}
+            {tab === "zoom" && <ZoomPanel {...panelCtx} />}
             {tab === "text" && <TextPanel {...panelCtx} />}
             {tab === "media" && <MediaPanel {...panelCtx} trackLengths={player.trackLengths} />}
             {tab === "subtitles" && <SubtitlesPanel {...panelCtx} live={live} />}
@@ -614,7 +624,7 @@ export function VideoEditor({ id }: { id: string }) {
         </aside>
       </div>
 
-      <div className="h-48 shrink-0">
+      <div className="h-60 shrink-0">
         <Timeline
           spec={spec}
           total={total}

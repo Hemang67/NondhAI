@@ -1,5 +1,5 @@
 import type { NRect, ProjectSpec } from "./project";
-import { segLen } from "./project";
+import { segLen, ZOOM_FADE, zoomLayout } from "./project";
 
 export interface RenderInput {
   spec: ProjectSpec;
@@ -153,6 +153,78 @@ export function buildRender(i: RenderInput): RenderPlan {
         `[bm${k}][bb${k}]overlay=${r.x}:${r.y}:enable='between(t,${num(b.start)},${num(b.end)})'[vb${k}]`,
     );
     cur = `vb${k}`;
+  });
+
+  // Zooms, after the blurs so a hidden secret stays hidden when magnified. Each is built only for
+  // its own stretch (trimmed, then moved back into place), so it costs nothing elsewhere, and
+  // fades in and out. Spotlight: the whole frame blurred and dimmed, the area scaled up crisply on
+  // top. Lens and glass: a framed plate (shadow, frame, the area enlarged) laid over the frame.
+  (spec.zooms ?? []).forEach((z, k) => {
+    const r = px(z.rect, W, H);
+    const start = Math.max(0, z.start);
+    const end = Math.min(total, z.end);
+    if (r.w < 4 || r.h < 4 || end - start < 0.1) return;
+    const len = end - start;
+    const fade = Math.min(ZOOM_FADE, len / 3);
+    const L = zoomLayout(z, W, H);
+    const tw = Math.min(W, even(L.dst.w));
+    const th = Math.min(H, even(L.dst.h));
+    const fades = `fade=t=in:st=0:d=${num(fade)}:alpha=1,fade=t=out:st=${num(len - fade)}:d=${num(fade)}:alpha=1,setpts=PTS+${num(start)}/TB`;
+    const piece = `[zs${k}]trim=start=${num(start)}:end=${num(end)},setpts=PTS-STARTPTS`;
+
+    if (L.style === "spotlight") {
+      const radius = Math.max(0, Math.min(Math.round(z.blur), Math.floor(Math.min(W, H) / 2) - 1));
+      const chroma = Math.max(1, Math.min(Math.ceil(radius / 2), Math.floor(Math.min(W, H) / 4) - 1));
+      graph.push(
+        `[${cur}]split[zm${k}][zs${k}];${piece},split[zb${k}][zf${k}];` +
+          `[zb${k}]${radius ? `boxblur=${radius}:2:${chroma}:2,` : ""}lutyuv=y=val*0.8[zbb${k}];` +
+          `[zf${k}]crop=${r.w}:${r.h}:${r.x}:${r.y},scale=${tw}:${th}:flags=lanczos,setsar=1[zff${k}];` +
+          `[zbb${k}][zff${k}]overlay=${Math.round((W - tw) / 2)}:${Math.round((H - th) / 2)},format=yuva420p,${fades}[zc${k}];` +
+          // Before the zoom starts and after it ends, the main picture passes through untouched.
+          `[zm${k}][zc${k}]overlay=0:0:eof_action=pass[vz${k}]`,
+      );
+      cur = `vz${k}`;
+      return;
+    }
+
+    // Lens / glass plate. Shapes are alpha masks drawn once a second with geq (cheap) and then
+    // repeated at the video's frame rate.
+    const glass = L.style === "glass";
+    const b = L.border;
+    const pad = 2 * L.shadow; // room for the shadow's blur
+    const handleLen = glass ? Math.round(tw * 0.45) : 0;
+    const handleW = glass ? Math.max(6, Math.round(tw * 0.09)) : 0;
+    const extra = glass ? Math.ceil(((tw / 2 + b + handleLen) * Math.SQRT1_2) - tw / 2 - b + handleW) : 0;
+    const PW = even(tw + 2 * b + 2 * pad + extra);
+    const PH = even(th + 2 * b + 2 * pad + extra);
+    const c = pad + b + tw / 2; // glass centre in the plate
+    const R = tw / 2;
+    const rr = (x0: number, y0: number, w: number, h: number, rad: number) =>
+      `lte(hypot(X-clip(X,${x0 + rad},${x0 + w - 1 - rad}),Y-clip(Y,${y0 + rad},${y0 + h - 1 - rad})),${rad})*between(X,${x0},${x0 + w - 1})*between(Y,${y0},${y0 + h - 1})`;
+    const circle = (cx: number, cy: number, rad: number) => `lte(hypot(X-${num(cx)},Y-${num(cy)}),${num(rad)})`;
+    // The handle: a bar from the rim outwards at 45°, down and to the right.
+    const along = `((X-${num(c)})+(Y-${num(c)}))*${Math.SQRT1_2}`;
+    const across = `abs((X-${num(c)})-(Y-${num(c)}))*${Math.SQRT1_2}`;
+    const handle = `gte(${along},${num(R + b / 2)})*lte(${along},${num(R + b + handleLen)})*lte(${across},${num(handleW / 2)})`;
+    const frameShape = glass ? circle(c, c, R + b) : rr(pad, pad, tw + 2 * b, th + 2 * b, L.corner + b);
+    const shadowShape = glass ? `max(${circle(c, c + L.shadow / 2, R + b)},${handle})` : rr(pad, pad + Math.round(L.shadow / 2), tw + 2 * b, th + 2 * b, L.corner + b);
+    const contentShape = glass ? circle(tw / 2, th / 2, R) : rr(0, 0, tw, th, L.corner);
+    const still = (color: string, w: number, h: number, alpha: string) =>
+      `color=c=${color}:s=${w}x${h}:r=1:d=${num(len)},format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alpha}'`;
+    const sr = Math.max(1, Math.min(L.shadow, Math.floor(Math.min(PW, PH) / 2) - 1));
+    graph.push(
+      `[${cur}]split[zm${k}][zs${k}];` +
+        `${still("black", PW, PH, `110*${shadowShape}`)},boxblur=luma_radius=1:chroma_radius=1:alpha_radius=${sr}:alpha_power=2,fps=${fps}[zsh${k}];` +
+        (glass ? `${still("0x2b2b2b", PW, PH, `255*${handle}`)},fps=${fps}[zh${k}];[zsh${k}][zh${k}]overlay=0:0[zsh2${k}];` : "") +
+        `${still("white", PW, PH, `255*${frameShape}`)},fps=${fps}[zfr${k}];` +
+        `[${glass ? `zsh2${k}` : `zsh${k}`}][zfr${k}]overlay=0:0[zpl${k}];` +
+        `color=c=black:s=${tw}x${th}:r=1:d=${num(len)},format=gray,geq=lum='255*${contentShape}',fps=${fps}[zmask${k}];` +
+        `${piece},crop=${even(L.src.w)}:${even(L.src.h)}:${Math.round(L.src.x)}:${Math.round(L.src.y)},scale=${tw}:${th}:flags=lanczos,setsar=1,format=yuva420p[zcon${k}];` +
+        `[zcon${k}][zmask${k}]alphamerge[zcm${k}];` +
+        `[zpl${k}][zcm${k}]overlay=${pad + b}:${pad + b},format=yuva420p,${fades}[zc${k}];` +
+        `[zm${k}][zc${k}]overlay=${Math.round(L.dst.x - b - pad)}:${Math.round(L.dst.y - b - pad)}:eof_action=pass[vz${k}]`,
+    );
+    cur = `vz${k}`;
   });
 
   // Images.

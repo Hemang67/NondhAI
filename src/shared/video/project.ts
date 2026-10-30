@@ -29,6 +29,90 @@ export interface BlurBox extends TimedRange {
   suggested?: { reason: string; text: string };
 }
 
+/**
+ * How a zoom looks:
+ *  - spotlight: the area fills the screen (scaled to fit, keeping its shape) over a blurred copy
+ *    of the whole frame;
+ *  - lens: like the Windows Magnifier lens, the area enlarged in place in a framed, rounded box;
+ *  - glass: a round magnifying glass with a rim and handle over the area.
+ * Lens and glass leave the rest of the picture as it is.
+ */
+export type ZoomStyle = "spotlight" | "lens" | "glass";
+
+/** Magnify part of the picture for a while. */
+export interface ZoomBox extends TimedRange {
+  id: string;
+  rect: NRect;
+  /** Absent on zooms made before styles existed: spotlight. */
+  style?: ZoomStyle;
+  /** Spotlight: how much of the frame the magnified area may fill (0.6..1). */
+  size: number;
+  /** Spotlight: background blur, like a blur box's strength (0..40; 0 only dims it). */
+  blur: number;
+  /** Lens and glass: how many times bigger (1.5..4). */
+  magnify?: number;
+}
+
+/** Fade in and out over this long (seconds), so a zoom doesn't jump. */
+export const ZOOM_FADE = 0.3;
+
+export interface ZoomLayout {
+  style: ZoomStyle;
+  /** The part of the picture shown magnified, in frame pixels. For glass it is a square. */
+  src: { x: number; y: number; w: number; h: number };
+  /** Where it is drawn, in frame pixels. */
+  dst: { x: number; y: number; w: number; h: number };
+  /** Frame (lens border, glass rim) thickness, lens corner radius and shadow size, in pixels. */
+  border: number;
+  corner: number;
+  shadow: number;
+}
+
+/**
+ * The one geometry for every zoom style, in pixels of a W×H frame. The export and the preview
+ * both draw from this, so they can't disagree.
+ */
+export function zoomLayout(z: ZoomBox, W: number, H: number): ZoomLayout {
+  const style = z.style ?? "spotlight";
+  const unit = Math.min(W, H);
+  // At least 3 px: video stores colour at half resolution, so a thinner frame picks up the colour
+  // of whatever is behind it.
+  const border = Math.max(3, Math.round(unit * 0.011));
+  const base = { style, border, corner: Math.round(unit * 0.02), shadow: Math.max(4, Math.round(unit * 0.025)) };
+  const r = { x: z.rect.x * W, y: z.rect.y * H, w: z.rect.w * W, h: z.rect.h * H };
+  if (style === "spotlight") {
+    const t = zoomTarget(z);
+    return { ...base, src: r, dst: { x: t.x * W, y: t.y * H, w: t.w * W, h: t.h * H } };
+  }
+  const m = Math.min(4, Math.max(1.5, z.magnify ?? 2));
+  const clampTo = (v: number, size: number, max: number) => Math.min(Math.max(v, border), Math.max(border, max - size - border));
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  if (style === "lens") {
+    // As big as asked, but never bigger than the frame; centred on the area, kept on screen.
+    const k = Math.min(m, (W * 0.95) / r.w, (H * 0.95) / r.h);
+    const w = r.w * k;
+    const h = r.h * k;
+    return { ...base, src: r, dst: { x: clampTo(cx - w / 2, w, W), y: clampTo(cy - h / 2, h, H), w, h } };
+  }
+  // Glass: a square around the area's centre (its longer side), shown as a circle. The glass
+  // always magnifies by m; when that would make it bigger than the frame, it shows less of the
+  // area (its middle) rather than magnifying less.
+  const side = Math.min(Math.max(r.w, r.h), (unit * 0.9) / m);
+  const src = { x: Math.min(Math.max(0, cx - side / 2), W - side), y: Math.min(Math.max(0, cy - side / 2), H - side), w: side, h: side };
+  const d = side * m;
+  return { ...base, src, dst: { x: clampTo(cx - d / 2, d, W), y: clampTo(cy - d / 2, d, H), w: d, h: d } };
+}
+
+/** Where the magnified area sits in the frame: its rectangle scaled up to fit, centred. */
+export function zoomTarget(z: Pick<ZoomBox, "rect" | "size">): NRect {
+  // One pixel scale for both sides (normalized sizes scale alike), limited by the tighter side.
+  const k = z.size / Math.max(z.rect.w, z.rect.h);
+  const w = Math.min(1, z.rect.w * k);
+  const h = Math.min(1, z.rect.h * k);
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+
 export interface TextElement extends TimedRange {
   id: string;
   text: string;
@@ -67,6 +151,8 @@ export interface ProjectSpec {
   segments: Segment[];
   crop: NRect | null;
   blurs: BlurBox[];
+  /** Absent in edits saved before zooms existed. */
+  zooms?: ZoomBox[];
   texts: TextElement[];
   images: ImageElement[];
   meetingAudio: { enabled: boolean; volume: number };
@@ -96,6 +182,7 @@ export function emptySpec(clips: ClipRef[]): ProjectSpec {
     segments: clips.map((c) => ({ id: newId("s"), clipId: c.id, in: 0, out: c.duration })),
     crop: null,
     blurs: [],
+    zooms: [],
     texts: [],
     images: [],
     meetingAudio: { enabled: true, volume: 1 },
@@ -151,7 +238,7 @@ export function splitAt(spec: ProjectSpec, t: number): ProjectSpec {
 
 /**
  * Remove a stretch of the timeline [from, to). Everything after it moves earlier, and timed
- * elements (blurs, texts, images, subtitles, audio) shift with it or are trimmed/dropped.
+ * elements (blurs, zooms, texts, images, subtitles, audio) shift with it or are trimmed/dropped.
  */
 export function cutRange(spec: ProjectSpec, from: number, to: number): ProjectSpec {
   const a = Math.max(0, Math.min(from, to));
@@ -172,6 +259,7 @@ export function cutRange(spec: ProjectSpec, from: number, to: number): ProjectSp
   return {
     ...s,
     blurs: keep(s.blurs),
+    zooms: keep(s.zooms ?? []),
     texts: keep(s.texts),
     images: keep(s.images),
     subtitles: { ...s.subtitles, lines: keep(s.subtitles.lines) },

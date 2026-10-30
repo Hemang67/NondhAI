@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { VideoProgress, VideoProjectDetail } from "@shared/ipc";
-import { clipRef, linesOnTimeline, newId, type BlurBox, type ProjectSpec, type TimedRange } from "@shared/video/project";
+import { clipRef, linesOnTimeline, newId, type BlurBox, type ProjectSpec, type TimedRange, type ZoomBox, type ZoomStyle } from "@shared/video/project";
 import { Badge, Button, cx, Input, Switch } from "../../components/ui";
 import { clock, speakerColor } from "../../nav";
 import type { DrawMode, Selection } from "./Preview";
 
-export type PanelTab = "crop" | "blur" | "text" | "media" | "subtitles" | "transcript";
+export type PanelTab = "crop" | "blur" | "zoom" | "text" | "media" | "subtitles" | "transcript";
 
 interface Ctx {
   spec: ProjectSpec;
@@ -24,21 +24,44 @@ interface Ctx {
 const round = (v: number) => Math.round(v * 10) / 10;
 
 /** Start/end inputs for anything shown for part of the video. */
+/**
+ * A seconds field that applies on Enter or when it loses focus. Applying every keystroke clamped
+ * half-typed values: typing 76 into "To" with a start of 72 became 72.1 at the "7", then 72.16.
+ */
+function SecondsInput({ value, total, onCommit }: { value: number; total: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const v = Number(draft);
+    setDraft(null);
+    if (draft.trim() && Number.isFinite(v)) onCommit(Math.max(0, Math.min(total, v)));
+  };
+  return (
+    <Input
+      type="number"
+      step="0.1"
+      min={0}
+      max={total}
+      className="h-7 w-20 tabular-nums"
+      value={draft ?? round(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setDraft(null);
+      }}
+    />
+  );
+}
+
 function Times({ item, total, t, onChange }: { item: TimedRange; total: number; t: number; onChange: (r: TimedRange) => void }) {
   const field = (which: "start" | "end") => (
     <label className="flex items-center gap-1">
       <span className="w-9 text-fg-muted">{which === "start" ? "From" : "To"}</span>
-      <Input
-        type="number"
-        step="0.1"
-        min={0}
-        max={total}
-        className="h-7 w-20 tabular-nums"
-        value={round(item[which])}
-        onChange={(e) => {
-          const v = Math.max(0, Math.min(total, Number(e.target.value)));
-          if (Number.isFinite(v)) onChange(which === "start" ? { start: Math.min(v, item.end - 0.1), end: item.end } : { start: item.start, end: Math.max(v, item.start + 0.1) });
-        }}
+      <SecondsInput
+        value={item[which]}
+        total={total}
+        onCommit={(v) => onChange(which === "start" ? { start: Math.min(v, item.end - 0.1), end: item.end } : { start: item.start, end: Math.max(v, item.start + 0.1) })}
       />
       <Button
         variant="ghost"
@@ -245,6 +268,112 @@ export function BlurPanel(c: Ctx & { scan: VideoProgress | undefined; onScan: ()
           <Slider label="Strength" value={sel.strength} min={4} max={40} step={1} onChange={(v) => setBlur(sel.id, { strength: v }, `strength-${sel.id}`)} />
           <Button className="h-7 px-2 text-xs" onClick={() => setBlur(sel.id, { start: 0, end: total })}>
             Blur for the whole video
+          </Button>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- zoom
+
+const ZOOM_STYLES: Array<{ id: ZoomStyle; label: string; hint: string }> = [
+  { id: "spotlight", label: "Spotlight", hint: "The area fills the screen; everything else is blurred behind it." },
+  { id: "lens", label: "Lens", hint: "Like the Windows Magnifier lens: the area enlarged in place, in a framed box." },
+  { id: "glass", label: "Glass", hint: "A round magnifying glass over the area. Best for a small spot." },
+];
+
+export function ZoomPanel({ spec, update, selection, select, t, total, draw, setDraw, seek }: Ctx) {
+  const zooms = spec.zooms ?? [];
+  const sel = zooms.find((z) => selection?.kind === "zoom" && z.id === selection.id);
+  const setZoom = (id: string, patch: Partial<ZoomBox>, key?: string) =>
+    update((s) => ({ ...s, zooms: (s.zooms ?? []).map((z) => (z.id === id ? { ...z, ...patch } : z)) }), key);
+  const remove = (id: string) => {
+    update((s) => ({ ...s, zooms: (s.zooms ?? []).filter((z) => z.id !== id) }));
+    select(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <section>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Zoom in</h3>
+          <Button variant={draw === "zoom" ? "primary" : "secondary"} className="h-7 px-2" onClick={() => setDraw(draw === "zoom" ? null : "zoom")}>
+            {draw === "zoom" ? "Cancel" : "+ Add zoom"}
+          </Button>
+        </div>
+        <p className="mt-1 text-xs text-fg-muted">
+          Drag over a part of the screen that's too small to read. While the zoom shows, that part fills the video and the rest is blurred behind it. A new zoom
+          lasts 5 seconds from the playhead; change it below or on the timeline.
+        </p>
+        <ul className="mt-2 space-y-0.5">
+          {zooms.map((z, i) => (
+            <Item
+              key={z.id}
+              selected={selection?.id === z.id}
+              onClick={() => {
+                select({ kind: "zoom", id: z.id });
+                if (t < z.start || t >= z.end) seek(z.start + 0.05);
+              }}
+            >
+              <span className="flex-1">Zoom {i + 1}</span>
+              <span className="tabular-nums text-fg-muted">
+                {clock(z.start * 1000)}–{clock(z.end * 1000)}
+              </span>
+            </Item>
+          ))}
+        </ul>
+      </section>
+
+      {sel && (
+        <section className="space-y-2 rounded-md border border-line p-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Selected zoom</h3>
+            <Button variant="ghost" className="h-7 px-2 text-red-600 dark:text-red-400" onClick={() => remove(sel.id)}>
+              Remove
+            </Button>
+          </div>
+          <p className="text-xs text-fg-muted">Move or resize the dashed area on the picture. Click outside it to see the zoom as it will export.</p>
+          <Times item={sel} total={total} t={t} onChange={(r) => setZoom(sel.id, r)} />
+          <div className="space-y-1">
+            <span className="text-xs text-fg-muted">Style</span>
+            <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Zoom style">
+              {ZOOM_STYLES.map((st) => (
+                <button
+                  key={st.id}
+                  role="radio"
+                  aria-checked={(sel.style ?? "spotlight") === st.id}
+                  title={st.hint}
+                  onClick={() => setZoom(sel.id, { style: st.id, magnify: sel.magnify ?? 2 })}
+                  className={cx(
+                    "rounded-md border px-1.5 py-1.5 text-xs",
+                    (sel.style ?? "spotlight") === st.id ? "border-accent bg-accent/15 font-medium" : "border-line hover:bg-muted",
+                  )}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-fg-muted">{ZOOM_STYLES.find((st) => st.id === (sel.style ?? "spotlight"))!.hint}</p>
+          </div>
+          {(sel.style ?? "spotlight") === "spotlight" ? (
+            <>
+              <Slider label="Size" value={sel.size} min={0.6} max={1} step={0.05} onChange={(v) => setZoom(sel.id, { size: v }, `zoom-size-${sel.id}`)} format={(v) => `${Math.round(v * 100)}%`} />
+              <Slider label="Background blur" value={sel.blur} min={0} max={40} step={1} onChange={(v) => setZoom(sel.id, { blur: v }, `zoom-blur-${sel.id}`)} />
+            </>
+          ) : (
+            <Slider
+              label="Magnify"
+              value={sel.magnify ?? 2}
+              min={1.5}
+              max={4}
+              step={0.25}
+              onChange={(v) => setZoom(sel.id, { magnify: v }, `zoom-magnify-${sel.id}`)}
+              format={(v) => `${v}×`}
+            />
+          )}
+          <Button className="h-7 px-2 text-xs" variant="ghost" onClick={() => select(null)}>
+            Preview the zoom
           </Button>
         </section>
       )}

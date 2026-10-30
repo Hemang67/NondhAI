@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   clampRect,
+  zoomLayout,
+  zoomTarget,
+  type ZoomBox,
   cutRange,
   deleteSegment,
   duration,
@@ -127,5 +130,58 @@ describe("speechToSubtitles", () => {
     const cut = speechToSubtitles(seg, 0, 12);
     expect(cut).toHaveLength(2);
     expect(cut.at(-1)!.end).toBeLessThanOrEqual(12);
+  });
+});
+
+describe("zooms", () => {
+  it("scales the zoom area up to fit, keeping its shape, centred", () => {
+    // A wide strip: limited by its width.
+    expect(zoomTarget({ rect: { x: 0.1, y: 0.1, w: 0.5, h: 0.1 }, size: 0.9 })).toEqual({ x: expect.closeTo(0.05), y: expect.closeTo(0.41), w: expect.closeTo(0.9), h: expect.closeTo(0.18) });
+    // A tall box: limited by its height.
+    const tall = zoomTarget({ rect: { x: 0, y: 0, w: 0.1, h: 0.3 }, size: 1 });
+    expect(tall.h).toBeCloseTo(1);
+    expect(tall.w).toBeCloseTo(1 / 3);
+    expect(tall.x).toBeCloseTo(1 / 3);
+  });
+
+  it("moves and trims zooms when a stretch is cut, like other timed elements", () => {
+    const spec = { ...emptySpec([{ id: "A", startMs: 0, duration: 20 }]), zooms: [
+      { id: "z1", rect: { x: 0, y: 0, w: 0.5, h: 0.5 }, start: 2, end: 6, size: 0.9, blur: 20 },
+      { id: "z2", rect: { x: 0, y: 0, w: 0.5, h: 0.5 }, start: 12, end: 15, size: 0.9, blur: 20 },
+    ] };
+    const out = cutRange(spec, 4, 10);
+    expect(out.zooms!.map((z) => [z.id, z.start, z.end])).toEqual([
+      ["z1", 2, 4],
+      ["z2", 6, 9],
+    ]);
+  });
+
+  it("tolerates edits saved before zooms existed", () => {
+    const { zooms: _, ...old } = emptySpec([{ id: "A", startMs: 0, duration: 10 }]);
+    expect(cutRange(old, 1, 2).zooms).toEqual([]);
+  });
+});
+
+describe("zoom styles", () => {
+  const z = (style: ZoomBox["style"], rect: ZoomBox["rect"], magnify = 2): ZoomBox => ({ id: "z", style, rect, start: 0, end: 5, size: 0.9, blur: 20, magnify });
+
+  it("lens: enlarged in place, kept on screen", () => {
+    const l = zoomLayout(z("lens", { x: 0.4, y: 0.4, w: 0.1, h: 0.1 }), 1000, 500);
+    expect(l.dst).toEqual({ x: 350, y: 175, w: 200, h: 100 }); // centred where the area was
+    // Near the right edge: pushed back inside the frame.
+    const edge = zoomLayout(z("lens", { x: 0.85, y: 0.4, w: 0.15, h: 0.1 }), 1000, 500);
+    expect(edge.dst.x + edge.dst.w).toBeLessThanOrEqual(1000 - edge.border);
+  });
+
+  it("glass: always magnifies by the chosen amount, showing the middle of a wide area", () => {
+    const wide = zoomLayout(z("glass", { x: 0.3, y: 0.1, w: 0.4, h: 0.05 }, 2), 1000, 500);
+    expect(wide.dst.w / wide.src.w).toBeCloseTo(2);
+    expect(wide.dst.w).toBeLessThanOrEqual(500 * 0.9 + 1e-9);
+    expect(wide.src.x + wide.src.w / 2).toBeCloseTo(500); // centred on the area
+  });
+
+  it("spotlight is the default for zooms made before styles existed", () => {
+    const { style: _, ...old } = z("lens", { x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
+    expect(zoomLayout(old as ZoomBox, 1000, 500).style).toBe("spotlight");
   });
 });
