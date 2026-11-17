@@ -73,7 +73,7 @@ function Enrollment({ me, onDone }: { me?: PersonRecord; onDone: () => void }) {
       (rms) => setLevel(Math.min(1, rms * 8)),
     );
     try {
-      await rec.current.start("enroll");
+      await rec.current.start("enroll", { raw: true });
       setState("recording");
       const t0 = Date.now();
       timer.current = setInterval(() => setSeconds(Math.floor((Date.now() - t0) / 1000)), 250);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clock, toMarkdown, toSrt, toText, toVtt, transcriptForLlm } from "@shared/meeting/export";
+import { clock, toMarkdown, toRttmExport, toSrt, toText, toVtt, transcriptForLlm } from "@shared/meeting/export";
+import { parseRttm } from "@shared/meeting/eval/diarization";
 import { chunkTranscript, mergeSummaries, parseSummary } from "@shared/meeting/summary";
 import type { TranscriptLine } from "@shared/meeting/types";
 
@@ -56,6 +57,13 @@ describe("exports", () => {
   it("produces WebVTT with dot milliseconds", () => {
     const vtt = toVtt(input);
     expect(vtt.startsWith("WEBVTT\n\n00:00:00.000 --> 00:00:02.500\n")).toBe(true);
+  });
+
+  it("exports a speaker timeline (RTTM) that the speaker evaluation reads back as ground truth", () => {
+    const turns = parseRttm(toRttmExport(input)).get("Pricing_sync")!;
+    expect(turns[0]).toEqual({ speaker: "Priya", start: 0, end: 2500 });
+    expect(turns.find((t) => t.start === 4200)).toEqual({ speaker: "Me", start: 4200, end: 6000 });
+    expect(turns.at(-1)).toEqual({ speaker: "Speaker_2", start: 6100, end: 21000 });
   });
 
   it("renders an LLM-friendly transcript", () => {

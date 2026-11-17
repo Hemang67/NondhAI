@@ -97,13 +97,16 @@ export const MODELS: ModelDef[] = [
     marker: "model.onnx",
   },
   {
-    id: "campplus-speaker-embedding",
+    // Replaced CAM++ after the speaker evaluation (docs/SPEAKER_ID_AUDIT.md): through
+    // sherpa-onnx, CAM++ mixed up speakers (EER 22–33 % on 3 s clips) where TitaNet-small
+    // separates them (0–4 %), at lower CPU cost.
+    id: "titanet-small-speaker-embedding",
     engine: "speaker",
-    name: "3D-Speaker CAM++ voice embeddings",
-    sizeMb: 28,
+    name: "NVIDIA NeMo TitaNet-small voice embeddings",
+    sizeMb: 40,
     description: "Voice fingerprints for telling speakers apart and recognizing them later.",
-    url: `${SHERPA}/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx`,
-    file: "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+    url: `${SHERPA}/speaker-recongition-models/nemo_en_titanet_small.onnx`,
+    file: "nemo_en_titanet_small.onnx",
   },
   {
     id: "bge-small-embedding",
@@ -139,7 +142,7 @@ export function isInstalled(modelsDir: string, m: ModelDef): boolean {
 }
 
 /** Small models every feature depends on (VAD, speaker models, search embeddings): ~60 MB. */
-export const REQUIRED_MODELS = ["silero-vad", "pyannote-segmentation-3.0", "campplus-speaker-embedding", "bge-small-embedding"];
+export const REQUIRED_MODELS = ["silero-vad", "pyannote-segmentation-3.0", "titanet-small-speaker-embedding", "bge-small-embedding"];
 
 /** Everything the current settings need on disk, so a fresh install works without visiting Models. */
 export function neededModels(s: Settings): string[] {
@@ -166,12 +169,14 @@ export function whisperFile(modelsDir: string, id: string): string {
 
 export function diarizationFiles(modelsDir: string): { segmentation: string; embedding: string } | null {
   const seg = modelDef("pyannote-segmentation-3.0")!;
-  const emb = modelDef("campplus-speaker-embedding")!;
+  const emb = modelDef(SPEAKER_EMBEDDING_ID)!;
   if (!isInstalled(modelsDir, seg) || !isInstalled(modelsDir, emb)) return null;
   return { segmentation: join(modelPath(modelsDir, seg), "model.onnx"), embedding: modelPath(modelsDir, emb) };
 }
 
-export const SPEAKER_MODEL = "campplus-v1";
+/** The voice-embedding model in use, and the tag its voiceprints are stored under. */
+export const SPEAKER_EMBEDDING_ID = "titanet-small-speaker-embedding";
+export const SPEAKER_MODEL = "titanet-small-v1";
 
 export function vadFile(modelsDir: string): string {
   return join(modelsDir, "vad", "silero_vad.onnx");

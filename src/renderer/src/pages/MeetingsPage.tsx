@@ -450,7 +450,26 @@ function Transcript({
   );
 }
 
+function speakerStatus(s: MeetingDetail["speakers"][number]): string {
+  if (s.key === "me") return "Your microphone";
+  if (/^t\d+$/.test(s.key)) return "From the imported transcript";
+  if (s.confirmed) return s.canRemember ? "Named by you · voice saved" : "Named by you · too little clear speech to remember the voice";
+  if (s.personId) return `Recognized by voice (${Math.round((s.score ?? 0) * 100)}% match)`;
+  return s.canRemember ? "Unknown voice · type a name to remember it" : "Unknown voice · too little clear speech to recognize later";
+}
+
 function SpeakersPanel({ id, d }: { id: string; d: MeetingDetail }) {
+  const rename = (key: string, name: string, value: string) => {
+    const clean = value.trim();
+    if (!clean || clean === name) return;
+    // Giving a speaker another speaker's name means they are the same person: merge them.
+    const same = d.speakers.find((x) => x.key !== key && x.key !== "me" && x.name.toLowerCase() === clean.toLowerCase());
+    if (same && confirm(`“${same.name}” is already a speaker in this meeting. Merge “${name}” into “${same.name}”?`)) {
+      void window.vd.invoke("meetings:mergeSpeakers", id, key, same.key);
+      return;
+    }
+    void window.vd.invoke("meetings:renameSpeaker", id, key, clean);
+  };
   return (
     <aside className="space-y-3">
       <h3 className="text-sm font-semibold">Speakers</h3>
@@ -470,20 +489,33 @@ function SpeakersPanel({ id, d }: { id: string; d: MeetingDetail }) {
               aria-label={`Name for ${s.name}`}
               className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none focus:underline"
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              onBlur={(e) => e.target.value.trim() && e.target.value !== s.name && void window.vd.invoke("meetings:renameSpeaker", id, s.key, e.target.value)}
+              onBlur={(e) => rename(s.key, s.name, e.target.value)}
             />
+            {s.key !== "me" && !s.confirmed && s.personId && <Badge tone={s.confidence === "high" ? "accent" : undefined}>{s.confidence}</Badge>}
           </div>
-          <div className="mt-1 text-[11px] text-fg-muted">
-            {s.key === "me"
-              ? "Your microphone"
-              : s.confirmed
-                ? "Named by you · voice saved"
-                : s.personId
-                  ? `Recognized by voice · ${s.confidence} confidence (${Math.round((s.score ?? 0) * 100)}%)`
-                  : /^t\d+$/.test(s.key)
-                    ? "From the imported transcript"
-                    : "Unknown voice — type a name to remember it"}
-          </div>
+          <div className="mt-1 text-[11px] text-fg-muted">{speakerStatus(s)}</div>
+          {s.key !== "me" && d.speakers.length > 1 && (
+            <select
+              className="mt-1 w-full rounded border border-line bg-panel text-[11px] text-fg-muted"
+              value=""
+              aria-label={`Merge ${s.name} into another speaker`}
+              onChange={(e) => {
+                const into = d.speakers.find((x) => x.key === e.target.value);
+                if (into && confirm(`Merge “${s.name}” into “${into.name}”? All of ${s.name}'s lines move to ${into.name}.`)) {
+                  void window.vd.invoke("meetings:mergeSpeakers", id, s.key, into.key);
+                }
+              }}
+            >
+              <option value="">Same person as…</option>
+              {d.speakers
+                .filter((x) => x.key !== s.key)
+                .map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {x.name}
+                  </option>
+                ))}
+            </select>
+          )}
         </div>
       ))}
     </aside>
@@ -515,6 +547,7 @@ function ExportMenu({ id, disabled }: { id: string; disabled: boolean }) {
         <option value="docx">Word (.docx)</option>
         <option value="srt">Subtitles (.srt)</option>
         <option value="vtt">Subtitles (.vtt)</option>
+        <option value="rttm">Speaker timeline (.rttm)</option>
       </select>
       {msg && <span className="text-xs text-fg-muted">{msg}</span>}
     </div>

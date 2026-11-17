@@ -5,6 +5,7 @@ import { cpus } from "node:os";
 import type { Settings } from "@shared/settings";
 import type { SttResult } from "@shared/types";
 import type { Channel, Segment, Turn } from "@shared/meeting/types";
+import { DIARIZATION } from "@shared/meeting/policy";
 import type { ClusterInfo, WorkerRequest, WorkerResponse } from "./workerProtocol";
 import { WhisperServer } from "./whisperServer";
 import { cloudTranscribe } from "./cloudStt";
@@ -207,14 +208,26 @@ export class SpeechService {
 
   async diarize(path: string, numSpeakers?: number): Promise<{ turns: Turn[]; clusters: ClusterInfo[] }> {
     if (!this.speakerModelsReady) throw new Error("Speaker models are not downloaded yet");
-    const r = await this.call<Extract<WorkerResponse, { type: "diarized" }>>({ type: "diarize", id: randomUUID(), path, numSpeakers, threshold: 0.5 });
+    const r = await this.call<Extract<WorkerResponse, { type: "diarized" }>>({
+      type: "diarize",
+      id: randomUUID(),
+      path,
+      numSpeakers,
+      threshold: DIARIZATION.threshold,
+      refine: DIARIZATION.refine,
+    });
     log.info(`diarized ${path}: ${r.clusters.length} speakers, ${r.turns.length} turns in ${r.ms} ms`);
     return { turns: r.turns, clusters: r.clusters };
   }
 
-  async embed(samples: Float32Array): Promise<number[]> {
-    const r = await this.call<Extract<WorkerResponse, { type: "embedding" }>>({ type: "embed", id: randomUUID(), samples });
+  async embed(samples: Float32Array, opts: { speechOnly?: boolean } = {}): Promise<number[]> {
+    const r = await this.call<Extract<WorkerResponse, { type: "embedding" }>>({ type: "embed", id: randomUUID(), samples, speechOnly: opts.speechOnly });
     return r.embedding;
+  }
+
+  async embedRanges(path: string, ranges: Array<[number, number]>): Promise<number[][]> {
+    const r = await this.call<Extract<WorkerResponse, { type: "embeddings" }>>({ type: "embed-ranges", id: randomUUID(), path, ranges });
+    return r.embeddings;
   }
 
   /** Called when the model or engine setting changes (or speaker models arrive). */

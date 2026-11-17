@@ -11,8 +11,9 @@
 import { readFileSync } from "node:fs";
 import { PhraseJoiner } from "@shared/speech/phraseJoiner";
 import { confidenceFromLogProbs, tokensToWords } from "@shared/meeting/words";
-import type { Channel, Segment, Turn } from "@shared/meeting/types";
-import type { ClusterInfo, DiarizationModels, WorkerRequest, WorkerResponse } from "./workerProtocol";
+import type { Channel, Segment } from "@shared/meeting/types";
+import type { DiarizationModels, WorkerRequest, WorkerResponse } from "./workerProtocol";
+import { createDiarizer, type Diarizer } from "./diarizer";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sherpa = require("sherpa-onnx-node");
@@ -43,7 +44,7 @@ let recognizerKey = "";
 let vadModel = "";
 let threads = 4;
 let diarizationModels: DiarizationModels | null = null;
-let embedder: any = null;
+let speaker: Diarizer | null = null;
 let dictation: DictationSession | null = null;
 const streams = new Map<string, MeetingStream>();
 
@@ -167,68 +168,10 @@ function readPcm16(path: string): Float32Array {
   return out;
 }
 
-function ensureEmbedder(): any {
+function diarizer(): Diarizer {
   if (!diarizationModels) throw new Error("speaker models are not installed");
-  if (!embedder) {
-    embedder = new sherpa.SpeakerEmbeddingExtractor({ model: diarizationModels.embedding, numThreads: threads, debug: 0 });
-  }
-  return embedder;
-}
-
-function embed(samples: Float32Array): number[] {
-  const ex = ensureEmbedder();
-  const s = ex.createStream();
-  s.acceptWaveform({ sampleRate: SAMPLE_RATE, samples });
-  s.inputFinished();
-  return Array.from(ex.compute(s, false) as Float32Array);
-}
-
-function diarize(samples: Float32Array, numSpeakers?: number, threshold?: number): { turns: Turn[]; clusters: ClusterInfo[] } {
-  if (!diarizationModels) throw new Error("speaker models are not installed");
-  const sd = new sherpa.OfflineSpeakerDiarization({
-    segmentation: { pyannote: { model: diarizationModels.segmentation }, numThreads: threads, debug: 0 },
-    embedding: { model: diarizationModels.embedding, numThreads: threads, debug: 0 },
-    clustering: { numClusters: numSpeakers ?? -1, threshold: threshold ?? 0.6 },
-    minDurationOn: 0.3,
-    minDurationOff: 0.5,
-  });
-  const raw = sd.process(samples) as Array<{ start: number; end: number; speaker: number }>;
-  const turns: Turn[] = raw.map((t) => ({ start: Math.round(t.start * 1000), end: Math.round(t.end * 1000), cluster: t.speaker }));
-  // One embedding per cluster: average over its longest turns (up to ~60 s), which is what
-  // later meetings are matched against.
-  const byCluster = new Map<number, Turn[]>();
-  for (const t of turns) {
-    if (!byCluster.has(t.cluster)) byCluster.set(t.cluster, []);
-    byCluster.get(t.cluster)!.push(t);
-  }
-  const clusters: ClusterInfo[] = [];
-  for (const [cluster, ts] of byCluster) {
-    const longest = [...ts].sort((a, b) => b.end - b.start - (a.end - a.start));
-    const picked: Float32Array[] = [];
-    let total = 0;
-    for (const t of longest) {
-      if (t.end - t.start < 800 || total > 60000) continue;
-      picked.push(samples.subarray(Math.floor((t.start / 1000) * SAMPLE_RATE), Math.floor((t.end / 1000) * SAMPLE_RATE)));
-      total += t.end - t.start;
-    }
-    let embedding: number[] | null = null;
-    if (picked.length) {
-      const joined = new Float32Array(picked.reduce((n, p) => n + p.length, 0));
-      let off = 0;
-      for (const p of picked) {
-        joined.set(p, off);
-        off += p.length;
-      }
-      embedding = embed(joined);
-    }
-    clusters.push({
-      cluster,
-      embedding,
-      firstStart: Math.min(...ts.map((t) => t.start)),
-      totalMs: ts.reduce((n, t) => n + t.end - t.start, 0),
-    });
-  }
-  return { turns, clusters };
+  speaker ??= createDiarizer(sherpa, { ...diarizationModels, threads });
+  return speaker;
 }
 
 async function finalPass(id: string, path: string, channel: Channel): Promise<Segment[]> {
@@ -253,6 +196,7 @@ async function handle(msg: WorkerRequest): Promise<void> {
       vadModel = msg.vadModel;
       threads = msg.threads;
       diarizationModels = msg.diarization ?? null;
+      speaker = null;
       loadParakeet(msg.parakeetDir);
       send({ type: "ready" });
       return;
@@ -338,14 +282,37 @@ async function handle(msg: WorkerRequest): Promise<void> {
     }
     case "diarize": {
       const t0 = Date.now();
-      const r = diarize(readPcm16(msg.path), msg.numSpeakers, msg.threshold);
+      const r = diarizer().diarize(readPcm16(msg.path), { numSpeakers: msg.numSpeakers, threshold: msg.threshold, refine: msg.refine });
       send({ type: "diarized", id: msg.id, ...r, ms: Date.now() - t0 });
       return;
     }
-    case "embed":
-      send({ type: "embedding", id: msg.id, embedding: embed(msg.samples) });
+    case "embed-ranges": {
+      const pcm = readPcm16(msg.path);
+      const at = (ms: number) => Math.floor((ms / 1000) * SAMPLE_RATE);
+      send({ type: "embeddings", id: msg.id, embeddings: msg.ranges.map(([a, b]) => diarizer().embed(pcm.subarray(at(a), at(b)))) });
       return;
+    }
+    case "embed": {
+      const samples = msg.speechOnly ? speechOnly(msg.samples) : msg.samples;
+      if (samples.length < SAMPLE_RATE * 3) throw new Error("Not enough speech was heard. Please read the paragraph aloud, a little closer to the microphone.");
+      send({ type: "embedding", id: msg.id, embedding: diarizer().embed(samples) });
+      return;
+    }
   }
+}
+
+/** The speech in a recording, silences removed (Silero VAD). */
+function speechOnly(samples: Float32Array): Float32Array {
+  const vad = makeVad();
+  const parts: Float32Array[] = [];
+  flushVad(vad, feedVad(vad, new Float32Array(0), samples, (s) => parts.push(s)), (s) => parts.push(s));
+  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
+  return out;
 }
 
 function queueLive(st: MeetingStream, samples: Float32Array, start: number): void {

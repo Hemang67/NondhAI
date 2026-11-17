@@ -28,11 +28,15 @@ export class Recorder {
     private readonly onLevel: (rms: number) => void,
   ) {}
 
-  async start(sessionId: string): Promise<void> {
+  /**
+   * `raw`: no noise suppression or automatic gain, like meeting recordings. Voice enrollment uses
+   * it so the saved voice matches how the same voice sounds in meetings.
+   */
+  async start(sessionId: string, opts: { raw?: boolean } = {}): Promise<void> {
     await this.stop();
     this.sessionId = sessionId;
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true },
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: !opts.raw, autoGainControl: !opts.raw },
     });
     const ctx = new AudioContext({ sampleRate: 16000, latencyHint: "interactive" });
     this.ctx = ctx;

@@ -23,6 +23,8 @@ export interface Turn {
   start: number;
   end: number;
   cluster: number;
+  /** The cluster was a weak guess (a short fragment folded into a larger speaker). */
+  uncertain?: boolean;
 }
 
 export type ConfidenceLevel = "high" | "medium" | "low";

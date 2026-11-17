@@ -34,7 +34,17 @@ export interface RecordingState {
 export interface MeetingDetail {
   meeting: MeetingRecord;
   lines: TranscriptLine[];
-  speakers: Array<SpeakerLabel & { confirmed: boolean }>;
+  speakers: Array<
+    SpeakerLabel & {
+      confirmed: boolean;
+      /** Clear speech behind the speaker's voice (ms), when known. */
+      cleanMs: number | null;
+      /** Lead over the next most similar known person, when matched by voice. */
+      margin: number | null;
+      /** Naming this speaker would remember their voice (enough clear speech, current model). */
+      canRemember: boolean;
+    }
+  >;
   /** Attendee names from the linked calendar event, offered when naming speakers. */
   suggestions: string[];
   /** Screen recordings made during the meeting, in time order. */
@@ -66,7 +76,7 @@ export interface VideoProgress {
   error?: string;
 }
 
-export type ExportFormat = "md" | "txt" | "docx" | "srt" | "vtt";
+export type ExportFormat = "md" | "txt" | "docx" | "srt" | "vtt" | "rttm";
 export type NoteAction = "summarize" | "rewrite" | "tasks" | "email";
 
 export interface AssistantState {
@@ -111,6 +121,8 @@ export interface InvokeMap {
   "meetings:rename": [[id: string, title: string], void];
   "meetings:renameSpeaker": [[id: string, key: string, name: string], void];
   "meetings:setLineSpeaker": [[id: string, lineId: string, key: string], void];
+  /** One person split into two speakers: move all of `from`'s lines to `into`. */
+  "meetings:mergeSpeakers": [[id: string, from: string, into: string], void];
   "meetings:editLine": [[id: string, lineId: string, text: string], void];
   "meetings:summarize": [[id: string], void];
   "meetings:ask": [[id: string | null, question: string], { answer: string; cloud: boolean }];
@@ -225,7 +237,7 @@ export const INVOKE_CHANNELS = [
   "app:info", "app:pickFolder", "app:deleteAllAudio", "app:deleteEverything", "app:setDatabaseEncryption",
   "dictation:toggle",
   "meetings:list", "meetings:get", "meetings:start", "meetings:stop", "meetings:recording", "meetings:rename",
-  "meetings:renameSpeaker", "meetings:setLineSpeaker", "meetings:editLine", "meetings:summarize", "meetings:ask",
+  "meetings:renameSpeaker", "meetings:setLineSpeaker", "meetings:mergeSpeakers", "meetings:editLine", "meetings:summarize", "meetings:ask",
   "meetings:export", "meetings:deleteAudio", "meetings:delete", "meetings:reprocess", "meetings:import", "meetings:importTranscript",
   "meetings:toNote", "meetings:copyConsent",
   "people:list", "people:rename", "people:delete", "people:enroll", "toast:respond",

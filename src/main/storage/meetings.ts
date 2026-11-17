@@ -7,6 +7,14 @@ import { toFtsQuery } from "./store";
 const toBlob = (v: ArrayLike<number>) => Buffer.from(Float32Array.from(v).buffer);
 const fromBlob = (b: Buffer | null) => (b ? new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) : null);
 
+/** How much evidence stands behind a meeting speaker's voice, and which model made it. */
+export interface SpeakerEvidence {
+  cleanMs?: number | null;
+  cohesion?: number | null;
+  margin?: number | null;
+  model?: string | null;
+}
+
 interface MeetingRow {
   id: string;
   title: string;
@@ -208,21 +216,41 @@ export class MeetingRepo {
 
   // ---- speakers ----
 
-  setSpeakers(meetingId: string, labels: Array<SpeakerLabel & { embedding?: ArrayLike<number> | null; confirmed?: boolean }>): void {
+  setSpeakers(meetingId: string, labels: Array<SpeakerLabel & SpeakerEvidence & { embedding?: ArrayLike<number> | null; confirmed?: boolean }>): void {
     const ins = this.db.prepare(
-      `INSERT OR REPLACE INTO meeting_speakers (meeting_id, speaker_key, name, person_id, score, confidence, confirmed, embedding)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO meeting_speakers (meeting_id, speaker_key, name, person_id, score, confidence, confirmed, embedding, clean_ms, cohesion, margin, model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.db.transaction(() => {
       this.db.prepare(`DELETE FROM meeting_speakers WHERE meeting_id = ?`).run(meetingId);
       for (const l of labels) {
-        ins.run(meetingId, l.key, l.name, l.personId, l.score, l.confidence, l.confirmed ? 1 : 0, l.embedding ? toBlob(l.embedding) : null);
+        ins.run(
+          meetingId,
+          l.key,
+          l.name,
+          l.personId,
+          l.score,
+          l.confidence,
+          l.confirmed ? 1 : 0,
+          l.embedding ? toBlob(l.embedding) : null,
+          l.cleanMs ?? null,
+          l.cohesion ?? null,
+          l.margin ?? null,
+          l.model ?? null,
+        );
       }
     })();
   }
 
-  speakers(meetingId: string): Array<SpeakerLabel & { confirmed: boolean; embedding: Float32Array | null }> {
-    const rows = this.db.prepare(`SELECT * FROM meeting_speakers WHERE meeting_id = ? ORDER BY speaker_key`).all(meetingId) as Array<{
+  speakers(meetingId: string): Array<SpeakerLabel & { confirmed: boolean; embedding: Float32Array | null; cleanMs: number | null; cohesion: number | null; margin: number | null; model: string | null }> {
+    // Me first, then in the order people first speak; speakers without lines last.
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, (SELECT MIN(l.start_ms) FROM meeting_lines l WHERE l.meeting_id = s.meeting_id AND l.speaker_key = s.speaker_key) AS first_ms
+         FROM meeting_speakers s WHERE s.meeting_id = ?
+         ORDER BY s.speaker_key <> 'me', first_ms IS NULL, first_ms, s.speaker_key`,
+      )
+      .all(meetingId) as Array<{
       speaker_key: string;
       name: string;
       person_id: string | null;
@@ -230,6 +258,10 @@ export class MeetingRepo {
       confidence: SpeakerLabel["confidence"];
       confirmed: number;
       embedding: Buffer | null;
+      clean_ms: number | null;
+      cohesion: number | null;
+      margin: number | null;
+      model: string | null;
     }>;
     return rows.map((r) => ({
       key: r.speaker_key,
@@ -239,6 +271,10 @@ export class MeetingRepo {
       confidence: r.confidence,
       confirmed: !!r.confirmed,
       embedding: fromBlob(r.embedding),
+      cleanMs: r.clean_ms,
+      cohesion: r.cohesion,
+      margin: r.margin,
+      model: r.model,
     }));
   }
 
@@ -246,6 +282,43 @@ export class MeetingRepo {
     this.db
       .prepare(`UPDATE meeting_speakers SET name = ?, person_id = ?, confirmed = 1, confidence = 'high' WHERE meeting_id = ? AND speaker_key = ?`)
       .run(name, personId, meetingId, key);
+  }
+
+  /**
+   * Named speakers whose saved voice was made by another embedding model, in meetings that still
+   * have their audio: their voice can be re-derived from the lines they spoke.
+   */
+  namedSpeakersNeedingVoice(model: string): Array<{ meetingId: string; key: string; personId: string }> {
+    return this.db
+      .prepare(
+        `SELECT s.meeting_id meetingId, s.speaker_key key, s.person_id personId
+         FROM meeting_speakers s JOIN meetings m ON m.id = s.meeting_id
+         WHERE s.confirmed = 1 AND s.person_id IS NOT NULL AND s.speaker_key GLOB 'c[0-9]*'
+           AND (s.model IS NULL OR s.model <> ?) AND m.audio_file IS NOT NULL AND m.deleted_at IS NULL
+         ORDER BY m.started_at DESC`,
+      )
+      .all(model) as Array<{ meetingId: string; key: string; personId: string }>;
+  }
+
+  /** A null embedding records that this model found no usable voice (so it isn't retried). */
+  setSpeakerVoice(meetingId: string, key: string, v: { embedding: ArrayLike<number> | null; cleanMs: number; cohesion: number; model: string }): void {
+    this.db
+      .prepare(`UPDATE meeting_speakers SET embedding = ?, clean_ms = ?, cohesion = ?, model = ? WHERE meeting_id = ? AND speaker_key = ?`)
+      .run(v.embedding ? toBlob(v.embedding) : null, v.cleanMs, v.cohesion, v.model, meetingId, key);
+  }
+
+  /**
+   * Manual correction for one person split into two speakers: every line of `from` moves to
+   * `into`, and `from` is removed. `into` keeps its own name and voice.
+   */
+  mergeSpeakers(meetingId: string, from: string, into: string): void {
+    if (from === into) throw new Error("A speaker can't be merged into itself");
+    const exists = (key: string) => !!this.db.prepare(`SELECT 1 FROM meeting_speakers WHERE meeting_id = ? AND speaker_key = ?`).get(meetingId, key);
+    if (!exists(from) || !exists(into)) throw new Error("speaker not found");
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE meeting_lines SET speaker_key = ?, uncertain = 0 WHERE meeting_id = ? AND speaker_key = ?`).run(into, meetingId, from);
+      this.db.prepare(`DELETE FROM meeting_speakers WHERE meeting_id = ? AND speaker_key = ?`).run(meetingId, from);
+    })();
   }
 
   /** Move one line to another speaker (manual correction). */
@@ -328,14 +401,15 @@ export class ClipRepo {
 export class PeopleRepo {
   constructor(private readonly db: Database.Database) {}
 
-  list(): PersonRecord[] {
+  /** `model`: count only voice samples made by that model (the one in use); all when omitted. */
+  list(model?: string): PersonRecord[] {
     return (
       this.db
         .prepare(
-          `SELECT p.id, p.name, p.is_me isMe, (SELECT count(*) FROM voiceprints v WHERE v.person_id = p.id) voiceprints
+          `SELECT p.id, p.name, p.is_me isMe, (SELECT count(*) FROM voiceprints v WHERE v.person_id = p.id AND (? IS NULL OR v.model = ?)) voiceprints
            FROM people p WHERE p.deleted_at IS NULL ORDER BY p.is_me DESC, p.name`,
         )
-        .all() as Array<{ id: string; name: string; isMe: number; voiceprints: number }>
+        .all(model ?? null, model ?? null) as Array<{ id: string; name: string; isMe: number; voiceprints: number }>
     ).map((r) => ({ ...r, isMe: !!r.isMe }));
   }
 
@@ -363,17 +437,26 @@ export class PeopleRepo {
     this.db.prepare(`UPDATE people SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(Date.now(), Date.now(), id);
   }
 
-  addVoiceprint(personId: string, embedding: ArrayLike<number>, model: string, source: "enrollment" | "meeting", meetingId?: string): void {
-    // Keep the newest few per person: voices drift with microphones and rooms.
+  addVoiceprint(
+    personId: string,
+    embedding: ArrayLike<number>,
+    model: string,
+    source: "enrollment" | "meeting",
+    meetingId?: string,
+    q: { quality?: number; speechMs?: number } = {},
+  ): void {
     this.db
-      .prepare(`INSERT INTO voiceprints (id, person_id, embedding, model, source, source_meeting_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), personId, toBlob(embedding), model, source, meetingId ?? null, Date.now());
+      .prepare(`INSERT INTO voiceprints (id, person_id, embedding, model, source, source_meeting_id, created_at, quality, speech_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), personId, toBlob(embedding), model, source, meetingId ?? null, Date.now(), q.quality ?? null, q.speechMs ?? null);
+    // Keep the best few per person and model (newest first among equals): voices drift with
+    // microphones and rooms, but a poor sample shouldn't push out a good one.
     this.db
       .prepare(
-        `DELETE FROM voiceprints WHERE person_id = ? AND source = 'meeting' AND id NOT IN (
-           SELECT id FROM voiceprints WHERE person_id = ? AND source = 'meeting' ORDER BY created_at DESC LIMIT 8)`,
+        `DELETE FROM voiceprints WHERE person_id = ? AND model = ? AND source = 'meeting' AND id NOT IN (
+           SELECT id FROM voiceprints WHERE person_id = ? AND model = ? AND source = 'meeting'
+           ORDER BY COALESCE(quality, 0.5) DESC, created_at DESC, rowid DESC LIMIT 8)`,
       )
-      .run(personId, personId);
+      .run(personId, model, personId, model);
   }
 
   clearVoiceprints(personId: string, source?: "enrollment" | "meeting"): void {
@@ -382,17 +465,18 @@ export class PeopleRepo {
   }
 
   /** Every person with their voice embeddings, for matching. */
-  voices(model: string): Array<{ personId: string; name: string; isMe: boolean; embeddings: Float32Array[] }> {
+  voices(model: string): Array<{ personId: string; name: string; isMe: boolean; embeddings: Float32Array[]; qualities: number[] }> {
     const rows = this.db
       .prepare(
-        `SELECT p.id, p.name, p.is_me, v.embedding FROM people p JOIN voiceprints v ON v.person_id = p.id
+        `SELECT p.id, p.name, p.is_me, v.embedding, v.quality FROM people p JOIN voiceprints v ON v.person_id = p.id
          WHERE p.deleted_at IS NULL AND v.model = ?`,
       )
-      .all(model) as Array<{ id: string; name: string; is_me: number; embedding: Buffer }>;
-    const map = new Map<string, { personId: string; name: string; isMe: boolean; embeddings: Float32Array[] }>();
+      .all(model) as Array<{ id: string; name: string; is_me: number; embedding: Buffer; quality: number | null }>;
+    const map = new Map<string, { personId: string; name: string; isMe: boolean; embeddings: Float32Array[]; qualities: number[] }>();
     for (const r of rows) {
-      if (!map.has(r.id)) map.set(r.id, { personId: r.id, name: r.name, isMe: !!r.is_me, embeddings: [] });
+      if (!map.has(r.id)) map.set(r.id, { personId: r.id, name: r.name, isMe: !!r.is_me, embeddings: [], qualities: [] });
       map.get(r.id)!.embeddings.push(fromBlob(r.embedding)!);
+      map.get(r.id)!.qualities.push(r.quality ?? 0.5);
     }
     return [...map.values()];
   }

@@ -1,4 +1,5 @@
 import type { MeetingSummary, SpeakerLabel, TranscriptLine } from "./types";
+import { toRttm } from "./eval/diarization";
 
 export interface ExportInput {
   title: string;
@@ -96,6 +97,17 @@ export function toSrt(i: ExportInput): string {
 
 export function toVtt(i: ExportInput): string {
   return "WEBVTT\n\n" + cues(i).map((c) => `${stamp(c.start, ".")} --> ${stamp(c.end, ".")}\n${c.text}\n`).join("\n");
+}
+
+/**
+ * Who spoke when, as RTTM (one row per transcript line). After correcting speakers in the app,
+ * this is ground truth for the speaker evaluation (scripts/speaker-eval).
+ */
+export function toRttmExport(i: ExportInput): string {
+  return toRttm(
+    i.title,
+    i.lines.map((l) => ({ speaker: nameOf(i, l), start: l.start, end: l.end })),
+  );
 }
 
 export function transcriptForLlm(i: Pick<ExportInput, "lines" | "speakers">): string {

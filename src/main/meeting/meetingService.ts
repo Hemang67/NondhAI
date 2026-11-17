@@ -8,6 +8,9 @@ import { buildSummaryMessages, chunkTranscript, mergeSummaries, parseSummary } f
 import { transcriptForLlm } from "@shared/meeting/export";
 import { buildImportedTranscript, parseTranscript } from "@shared/meeting/transcriptImport";
 import type { Segment, TranscriptLine } from "@shared/meeting/types";
+import { MATCH_POLICY } from "@shared/meeting/policy";
+import { describeVoice, piecesForSpeaker } from "@shared/meeting/refine";
+import { voiceprintToSave } from "@shared/meeting/speakers";
 import type { MeetingKind, MeetingRecord } from "@shared/types";
 import type { Settings } from "@shared/settings";
 import { AudioCapture } from "./audioCapture";
@@ -372,11 +375,13 @@ export class MeetingService extends EventEmitter {
         turns: diar.turns,
         clusters: diar.clusters,
         voices: this.d.people.voices(SPEAKER_MODEL),
+        policy: MATCH_POLICY,
       });
       this.d.meetings.replaceLines(id, out.lines, true);
-      this.d.meetings.setSpeakers(id, out.speakers);
+      // The model is stored with each voice, so a later rename never saves it under another model.
+      this.d.meetings.setSpeakers(id, out.speakers.map((s) => ({ ...s, model: SPEAKER_MODEL })));
       log.info(
-        `meeting ${id}: ${out.lines.length} lines, ${out.speakers.length} speakers, ${out.echoWordsRemoved} echo words removed`,
+        `meeting ${id}: ${out.lines.length} lines, ${out.speakers.length} speakers (${diar.clusters.length} clusters, ${out.lines.filter((l) => l.uncertainSpeaker).length} uncertain lines), ${out.echoWordsRemoved} echo words removed`,
       );
 
       // Compress the audio; keep the PCM only if encoding fails. Unpacked copies of audio that is
@@ -404,6 +409,48 @@ export class MeetingService extends EventEmitter {
       log.error(`meeting ${id} processing failed`, err);
       this.d.meetings.update(id, { status: "failed", error: String((err as Error).message ?? err) });
     }
+    this.emit("changed");
+  }
+
+  /**
+   * After a voice-model change, rebuild the voices of people the user named in earlier meetings
+   * from the lines they spoke (meetings that kept their audio), so they are still recognised.
+   */
+  rederiveVoices(): void {
+    this.queue = this.queue.then(() => this.doRederiveVoices()).catch((err) => log.error("re-deriving voices failed", err));
+  }
+
+  private async doRederiveVoices(): Promise<void> {
+    if (!this.d.speech.speakerModelsReady) return;
+    const todo = this.d.meetings.namedSpeakersNeedingVoice(SPEAKER_MODEL);
+    if (!todo.length) return;
+    let saved = 0;
+    for (const meetingId of new Set(todo.map((t) => t.meetingId))) {
+      const m = this.d.meetings.get(meetingId);
+      if (!m?.audioFile || !existsSync(join(m.dir, m.audioFile))) continue;
+      const call = m.kind === "call";
+      const tmp = call ? [join(m.dir, "voice-mic.pcm"), join(m.dir, "voice-system.pcm")] : [join(m.dir, "voice-mixed.pcm")];
+      try {
+        await restorePcm(join(m.dir, m.audioFile), tmp);
+        const track = tmp[tmp.length - 1]!;
+        // In a call the other people are on the system track; the lines say who spoke when.
+        const lines = this.d.meetings.lines(meetingId).filter((l) => !call || l.channel === "system");
+        for (const sp of todo.filter((t) => t.meetingId === meetingId)) {
+          const pieces = existsSync(track) ? piecesForSpeaker(lines, sp.key) : [];
+          const embs = pieces.length ? await this.d.speech.embedRanges(track, pieces.map((p) => [p.start, p.end])) : [];
+          const voice = describeVoice(pieces.map((p, i) => ({ ...p, embedding: embs[i]! })));
+          this.d.meetings.setSpeakerVoice(meetingId, sp.key, { embedding: voice?.embedding ?? null, cleanMs: voice?.cleanMs ?? 0, cohesion: voice?.cohesion ?? 0, model: SPEAKER_MODEL });
+          const v = voice && voiceprintToSave({ ...voice, model: SPEAKER_MODEL }, SPEAKER_MODEL);
+          if (v) {
+            this.d.people.addVoiceprint(sp.personId, v.embedding, SPEAKER_MODEL, "meeting", meetingId, { quality: v.quality, speechMs: v.speechMs });
+            saved++;
+          }
+        }
+      } finally {
+        for (const f of tmp) rmSync(f, { force: true });
+      }
+    }
+    log.info(`re-derived ${saved} voices (${SPEAKER_MODEL}) for ${todo.length} named speakers`);
     this.emit("changed");
   }
 

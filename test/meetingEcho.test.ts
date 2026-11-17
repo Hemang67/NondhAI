@@ -17,6 +17,12 @@ describe("tokensToWords", () => {
     expect(words[0]!.end).toBe(3480);
   });
 
+  it("ends a word before a following pause instead of stretching it to the next word", () => {
+    const words = tokensToWords([" yes", " so"], [1.0, 3.0], 0, 5000);
+    expect(words[0]).toEqual({ w: "yes", start: 1000, end: 1320 });
+    expect(words[1]).toEqual({ w: "so", start: 3000, end: 3320 });
+  });
+
   it("averages log-probs into a confidence", () => {
     expect(confidenceFromLogProbs([0, 0])).toBe(1);
     expect(confidenceFromLogProbs([Math.log(0.5)])).toBeCloseTo(0.5);

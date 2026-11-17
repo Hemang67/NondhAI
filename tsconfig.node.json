@@ -17,6 +17,7 @@
     "electron.vite.config.ts",
     "vitest.config.ts",
     "src/types/**/*",
-    "src/mcp/**/*"
+    "src/mcp/**/*",
+    "scripts/speaker-eval/**/*"
   ]
 }

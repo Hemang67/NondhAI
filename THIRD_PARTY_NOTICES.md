@@ -28,5 +28,5 @@
 | LFM2.5 (Liquid AI) | LFM Open License |
 | Silero VAD | MIT |
 | pyannote segmentation 3.0 (sherpa-onnx export) | MIT |
-| 3D-Speaker CAM++ voice embeddings | Apache-2.0 |
+| NVIDIA NeMo TitaNet-small voice embeddings (sherpa-onnx export) | Apache-2.0 (NeMo Toolkit license, per the NGC model card) |
 | BGE small en v1.5 (BAAI) | MIT |

@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { InvokeMap } from "@shared/ipc";
 import { noteActionMessages } from "@shared/ai";
 import { buildQaMessages } from "@shared/meeting/summary";
-import { summaryMarkdown, toMarkdown, toSrt, toText, toVtt, transcriptForLlm } from "@shared/meeting/export";
+import { summaryMarkdown, toMarkdown, toRttmExport, toSrt, toText, toVtt, transcriptForLlm } from "@shared/meeting/export";
 import type { SettingsStore } from "./settingsStore";
 import type { Store } from "./storage/store";
 import type { ClipRepo, MeetingRepo, PeopleRepo } from "./storage/meetings";
@@ -21,7 +21,8 @@ import type { CalendarService } from "./calendar/calendarService";
 import type { AssistantService } from "./assistant/assistantService";
 import type { DictationController } from "./dictation/dictationController";
 import { getSecret, hasSecret, INTERNAL_SECRETS, SECRET_NAMES, setSecret, type SecretName } from "./secrets";
-import { SPEAKER_MODEL, neededModels } from "./models/registry";
+import { SPEAKER_EMBEDDING_ID, SPEAKER_MODEL, neededModels } from "./models/registry";
+import { voiceprintToSave } from "@shared/meeting/speakers";
 import type { CalendarEvent } from "@shared/calendar";
 import { toDocx } from "./meeting/docx";
 import { TRANSCRIPT_EXTENSIONS } from "./meeting/transcriptFiles";
@@ -195,7 +196,7 @@ export function registerIpc(ctx: AppContext): void {
       log.error("download failed", id, err);
       throw err;
     });
-    if (id === "pyannote-segmentation-3.0" || id === "campplus-speaker-embedding") ctx.speech.reload();
+    if (id === "pyannote-segmentation-3.0" || id === SPEAKER_EMBEDDING_ID) ctx.speech.reload();
   });
   handle("models:cancel", (id) => ctx.models.cancel(id));
   handle("models:delete", (id) => ctx.models.delete(id));
@@ -217,7 +218,10 @@ export function registerIpc(ctx: AppContext): void {
     return {
       meeting: m,
       lines: meetings.lines(id),
-      speakers: meetings.speakers(id).map(({ embedding: _e, ...s }) => s),
+      speakers: meetings.speakers(id).map(({ embedding, cohesion, model, ...s }) => ({
+        ...s,
+        canRemember: s.key !== "me" && !!voiceprintToSave({ embedding, cleanMs: s.cleanMs, cohesion, model }, SPEAKER_MODEL),
+      })),
       suggestions: [...new Set([...calendarNames, ...known])],
       clips: ctx.clips.forMeeting(id),
     };
@@ -240,12 +244,18 @@ export function registerIpc(ctx: AppContext): void {
     } else {
       const person = people.findByName(clean) ?? people.create(clean);
       personId = person.id;
-      // Remember this voice so the same person is recognized in later meetings.
-      if (sp.embedding) people.addVoiceprint(person.id, sp.embedding, SPEAKER_MODEL, "meeting", id);
+      // Remember this voice so the same person is recognized in later meetings, if there is
+      // enough clear speech behind it and it was made by the current voice model.
+      const v = voiceprintToSave(sp, SPEAKER_MODEL);
+      if (v) people.addVoiceprint(person.id, v.embedding, SPEAKER_MODEL, "meeting", id, { quality: v.quality, speechMs: v.speechMs });
     }
     meetings.renameSpeaker(id, key, key === "me" ? "Me" : clean, personId);
     broadcast("meetings:changed");
     broadcast("people:changed");
+  });
+  handle("meetings:mergeSpeakers", (id, from, into) => {
+    meetings.mergeSpeakers(id, from, into);
+    broadcast("meetings:changed");
   });
   handle("meetings:setLineSpeaker", (id, lineId, key) => {
     meetings.setLineSpeaker(id, lineId, key);
@@ -263,7 +273,7 @@ export function registerIpc(ctx: AppContext): void {
     const r = await dialog.showSaveDialog({ defaultPath: `${safe}.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
     if (r.canceled || !r.filePath) return null;
     const data =
-      format === "md" ? toMarkdown(input) : format === "txt" ? toText(input) : format === "srt" ? toSrt(input) : format === "vtt" ? toVtt(input) : await toDocx(input);
+      format === "md" ? toMarkdown(input) : format === "txt" ? toText(input) : format === "srt" ? toSrt(input) : format === "vtt" ? toVtt(input) : format === "rttm" ? toRttmExport(input) : await toDocx(input);
     writeFileSync(r.filePath, data);
     return r.filePath;
   });
@@ -319,7 +329,7 @@ export function registerIpc(ctx: AppContext): void {
   });
 
   // ---- people ----
-  handle("people:list", () => people.list());
+  handle("people:list", () => people.list(SPEAKER_MODEL));
   handle("people:rename", (id, name) => {
     people.rename(id, name);
     broadcast("people:changed");
@@ -330,11 +340,11 @@ export function registerIpc(ctx: AppContext): void {
   });
   handle("people:enroll", async (name, samples) => {
     if (samples.length < 16000 * 8) throw new Error("Please read for at least 8 seconds");
-    const embedding = await ctx.speech.embed(samples);
+    const embedding = await ctx.speech.embed(samples, { speechOnly: true });
     const me = people.me() ?? people.create(name || "Me", true);
     if (name && me.name !== name) people.rename(me.id, name);
     people.clearVoiceprints(me.id, "enrollment");
-    people.addVoiceprint(me.id, embedding, SPEAKER_MODEL, "enrollment");
+    people.addVoiceprint(me.id, embedding, SPEAKER_MODEL, "enrollment", undefined, { quality: 1 });
     log.info(`voice enrolled for ${name || "me"} (${Math.round(samples.length / 16000)} s)`);
     broadcast("people:changed");
   });

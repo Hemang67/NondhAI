@@ -243,4 +243,14 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE video_projects_v5 RENAME TO video_projects;
   CREATE INDEX video_projects_meeting ON video_projects(meeting_id);
   `,
+  // 6: speaker identification evidence (docs/SPEAKER_ID_AUDIT.md). Additive only: rows from
+  // before keep working (NULL = unknown, treated as medium quality / legacy model).
+  `
+  ALTER TABLE voiceprints ADD COLUMN quality REAL;
+  ALTER TABLE voiceprints ADD COLUMN speech_ms INTEGER;
+  ALTER TABLE meeting_speakers ADD COLUMN clean_ms INTEGER;
+  ALTER TABLE meeting_speakers ADD COLUMN cohesion REAL;
+  ALTER TABLE meeting_speakers ADD COLUMN margin REAL;
+  ALTER TABLE meeting_speakers ADD COLUMN model TEXT;
+  `,
 ];

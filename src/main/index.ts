@@ -546,6 +546,8 @@ async function main(): Promise<void> {
     await models.ensure(needed);
     try {
       meetingService.recover();
+      // Named people keep being recognised after a voice-model change.
+      meetingService.rederiveVoices();
       await screenRecorder.recover();
       meetingService.applyRetention();
       setInterval(() => meetingService.applyRetention(), 6 * 3600 * 1000);
