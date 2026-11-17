@@ -72,23 +72,41 @@ export class ModelManager extends EventEmitter {
     this.errors.delete(id);
     this.emit("progress", id);
     try {
+      const get = (from: number) =>
+        fetch(m.url, { headers: from ? { range: `bytes=${from}-` } : {}, signal: abort.signal, redirect: "follow" });
       const have = existsSync(part) ? statSync(part).size : 0;
-      const res = await fetch(m.url, { headers: have ? { range: `bytes=${have}-` } : {}, signal: abort.signal, redirect: "follow" });
-      if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status}`);
-      const resumed = res.status === 206;
-      state.received = resumed ? have : 0;
-      const len = Number(res.headers.get("content-length") ?? 0);
-      if (len) state.total = state.received + len;
-      let lastEmit = 0;
-      const body = Readable.fromWeb(res.body as never);
-      body.on("data", (c: Buffer) => {
-        state.received += c.length;
-        if (Date.now() - lastEmit > 250) {
-          lastEmit = Date.now();
-          this.emit("progress", id);
+      let res: Response | null = await get(have);
+      if (res.status === 416 && have) {
+        // Nothing left past `have`: an earlier attempt downloaded the whole file but failed to extract or
+        // rename it (or the app closed in between). Use the .part only if Content-Range ("bytes */<size>")
+        // says it is exactly the file; otherwise it is stale or corrupt, so start over.
+        await res.body?.cancel();
+        const size = Number(/^bytes \*\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1]);
+        if (size === have) {
+          res = null;
+          state.received = state.total = have;
+        } else {
+          log.warn(`discarding ${have}-byte partial download of ${id} (server size ${size || "unknown"})`);
+          res = await get(0);
         }
-      });
-      await pipeline(body, createWriteStream(part, { flags: resumed ? "a" : "w" }));
+      }
+      if (res) {
+        if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status}`);
+        const resumed = res.status === 206;
+        state.received = resumed ? have : 0;
+        const len = Number(res.headers.get("content-length") ?? 0);
+        if (len) state.total = state.received + len;
+        let lastEmit = 0;
+        const body = Readable.fromWeb(res.body as never);
+        body.on("data", (c: Buffer) => {
+          state.received += c.length;
+          if (Date.now() - lastEmit > 250) {
+            lastEmit = Date.now();
+            this.emit("progress", id);
+          }
+        });
+        await pipeline(body, createWriteStream(part, { flags: resumed ? "a" : "w" }));
+      }
       if (m.archiveDir) {
         await extractTarBz2(part, join(dir, m.engine));
         rmSync(part, { force: true });
