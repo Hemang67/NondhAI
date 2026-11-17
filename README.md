@@ -6,13 +6,29 @@
 Offline-first dictation and meeting transcription for Windows. Third-party notices: `THIRD_PARTY_NOTICES.md`.
 
 - **Dictation**: hold `Ctrl+Win`, speak, release. Clean text is pasted into the focused app, and your clipboard is put back afterwards. Double-tap to lock recording on. `Ctrl+Win+T` translates; `Ctrl+Win+A` is the assistant (edits selected text, or answers).
-- **Meetings**: `Ctrl+Win+M`, the tray, or the "call detected" prompt. Your mic and the call audio are recorded as separate tracks, with echo removal, a live transcript, then speaker separation, voice memory, a summary, Q&A and exports.
+- **Meetings**: `Ctrl+Win+M`, the tray, or the "call detected" prompt. Your mic and the call audio are recorded as separate tracks, with echo removal, a live transcript, then speaker separation, voice memory (the same person is recognized across meetings), a summary, Q&A and exports.
 - **Screen recording**: during a meeting, record the entire screen, one window, or a region, as many times as you like. A visible badge shows while it records.
 - **Video library**: edit those recordings. Cut, split, reorder, crop, blur, add text, images and music, and burn in subtitles made from the transcript. "Find sensitive info" reads the screen with Windows OCR on this computer and suggests blurs over passwords, API keys, tokens and card numbers for you to review. Several recordings from the same meeting can be merged into one video after you confirm. You can also **import videos** (MP4, MOV, WebM, MKV, AVI, WMV, phone videos…; drag and drop works), edit and merge them the same way, and make subtitles from their speech with the offline model. Exports are MP4 files; your originals are never changed.
 - **Notes and search**: rich-text notes in folders, keyword + semantic search, AI actions.
 - **Integrations**: local API and MCP server (`docs/API.md`), Google/Microsoft calendar (`docs/CALENDAR.md`).
 
 Everything runs locally by default (Parakeet / Whisper / Qwen via llama.cpp). Cloud providers are optional, use your own keys, and are marked "cloud" wherever they're used.
+
+## Who said what
+
+After a meeting, Nondh AI works out who spoke when from the audio, on this computer:
+
+- **Calls**: everything on your microphone is you. The other side's audio is split into speakers ("Speaker 1", "Speaker 2"…, numbered in the order they first speak).
+- **In-person meetings and imported files**: everyone is separated from one track; your enrolled voice (People page) finds you.
+- **Names stick**: type a name next to a speaker and their voice is remembered, so later meetings name them automatically. A voice is only remembered when there's enough clear speech behind it (about 10 s), and a speaker is only named when the match is clearly better than anyone else's; otherwise it stays "Speaker N" rather than guessing.
+- **Fixing mistakes**: if one person shows up as two speakers, choose **Same person as…** under one of them (or give both the same name). A single line can be moved to another speaker from its menu. Lines marked **speaker?** are the ones the app was unsure about.
+- **Speaker timeline export** (`.rttm`): after correcting a meeting, export it to measure accuracy with the evaluation tools.
+
+Speaker names from Meet, Teams or Zoom aren't read from the call itself. Calendar attendees are offered as name suggestions, and importing a transcript exported from those apps uses its speaker names.
+
+**Upgrading from 0.6.10 or earlier**: the voice model changed (CAM++ → NVIDIA NeMo TitaNet-small, about 40 MB, downloaded automatically). Voices of people you named are rebuilt automatically from meetings whose audio you kept. Record your own voice again on the People page if you use in-person meetings. Re-process an older meeting to get the new speaker separation for it.
+
+How it was measured, and the before/after numbers: [docs/SPEAKER_ID_AUDIT.md](docs/SPEAKER_ID_AUDIT.md) and [docs/evidence/speaker-id](docs/evidence/speaker-id/README.md).
 
 ## Screenshots
 
@@ -42,14 +58,17 @@ The installer isn't code-signed yet, so Windows may say "Windows protected your 
 npm install
 npm run build:native   # needs VS 2022 Build Tools (C++)
 npm run dev            # in shells inherited from VS Code: unset ELECTRON_RUN_AS_NODE first
-npm test
+npm test               # one file: npx vitest run test/meetingSpeakers.test.ts
+npm run typecheck
 npm run dist           # → release/NondhAI-Setup-x.y.z.exe
 npm run release        # bump "version" and commit first: builds, tags vX.Y.Z, publishes a GitHub Release with the installer
 ```
 
 Bundled binaries live in `resources/bin` (git-ignored): `llama/` (llama.cpp Vulkan build), `whisper/Release/` (whisper.cpp), plus `vd-input.exe` and `vd-audio.exe` built from `native/`. Models aren't bundled (they'd push the installer past GitHub's 2 GB file limit): the app downloads the ones the current settings need at start-up (`neededModels` in `src/main/models/registry.ts`), and the rest from the Models page, into the models folder you choose.
 
-Design: `docs/PLAN.md`. Evidence per phase: `docs/evidence/`.
+Speaker identification has its own evaluation tools (synthetic meetings, AMI recordings, model benchmarks, threshold calibration): `node scripts/speaker-eval.mjs`, documented in [docs/evidence/speaker-id](docs/evidence/speaker-id/README.md). Test data and candidate models go in `eval-data/` (git-ignored, never bundled).
+
+Design: `docs/PLAN.md`. Evidence per phase: `docs/evidence/`. Notes for AI coding assistants: `CLAUDE.md`.
 
 ## License
 
