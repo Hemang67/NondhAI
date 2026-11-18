@@ -232,7 +232,7 @@ export function SettingsPage() {
           </a>
         </div>
         <p className="mt-3 text-xs text-fg-muted">
-          Version {info?.version} · © 2026 {DEVELOPER.name} · everything is stored on this computer, in {info?.userData}
+          Version {info?.version} · © {new Date().getFullYear()} {DEVELOPER.name} · everything is stored on this computer, in {info?.userData}
         </p>
       </Card>
     </div>
